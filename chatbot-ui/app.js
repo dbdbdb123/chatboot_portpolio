@@ -6,6 +6,10 @@ const conversation = document.querySelector('#conversation');
 const welcome = document.querySelector('#welcome');
 const toolToggle = document.querySelector('#toolToggle');
 const toast = document.querySelector('#toast');
+const sendButton = document.querySelector('#sendButton');
+
+// 현재 탭의 대화 기록이다. 서버가 무상태이므로 매 요청에 전체 기록을 함께 보낸다.
+let chatMessages = [];
 
 function showToast(message) {
   toast.textContent = message;
@@ -21,6 +25,7 @@ function now() {
 }
 
 function addMessage(text, role) {
+  // textContent를 사용해 모델 응답에 포함된 HTML이 실행되지 않도록 한다.
   const article = document.createElement('article');
   article.className = `message ${role}-message`;
 
@@ -45,30 +50,77 @@ function addMessage(text, role) {
   article.scrollIntoView({ behavior: 'smooth', block: 'end' });
 }
 
+function addToolActivity(activity) {
+  // 백엔드가 반환한 MCP 실행 요약을 접을 수 있는 카드로 표시한다.
+  const card = document.createElement('details');
+  card.className = 'tool-card';
+  card.open = true;
+  const summary = document.createElement('summary');
+  const icon = document.createElement('span');
+  icon.className = 'tool-card-icon';
+  icon.textContent = '⌕';
+  const label = document.createElement('span');
+  const title = document.createElement('strong');
+  title.textContent = activity.name;
+  const detail = document.createElement('small');
+  detail.textContent = `${activity.server} MCP 서버에서 실행`;
+  label.append(title, detail);
+  const status = document.createElement('span');
+  status.className = 'tool-status';
+  status.textContent = activity.is_error ? '⚠ 오류' : '✓ 완료';
+  const chevron = document.createElement('span');
+  chevron.className = 'tool-chevron';
+  chevron.textContent = '⌄';
+  summary.append(icon, label, status, chevron);
+  const body = document.createElement('div');
+  body.className = 'tool-detail';
+  body.textContent = `입력: ${JSON.stringify(activity.arguments)}`;
+  card.append(summary, body);
+  conversation.appendChild(card);
+}
+
 function autoResize() {
   input.style.height = 'auto';
   input.style.height = `${Math.min(input.scrollHeight, 130)}px`;
 }
 
-form.addEventListener('submit', (event) => {
+form.addEventListener('submit', async (event) => {
   event.preventDefault();
   const text = input.value.trim();
   if (!text) return;
 
   welcome.hidden = true;
   addMessage(text, 'user');
+  chatMessages.push({ role: 'user', content: text });
   input.value = '';
   autoResize();
-
-  window.setTimeout(() => {
-    const toolNote = toolToggle.getAttribute('aria-pressed') === 'true'
-      ? ' 필요한 경우 연결된 도구도 함께 확인할게요.' : '';
-    addMessage(`요청을 확인했습니다.${toolNote} 현재 화면은 정적 데모이므로 실제 모델 연결은 백엔드 API를 추가하면 동작합니다.`, 'assistant');
-  }, 550);
+  sendButton.disabled = true;
+  try {
+    // UI와 API가 같은 FastAPI 앱에서 제공되므로 상대 경로를 사용한다.
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: chatMessages,
+        use_tools: toolToggle.getAttribute('aria-pressed') === 'true',
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || '요청에 실패했습니다.');
+    data.tools.forEach(addToolActivity);
+    addMessage(data.message.content, 'assistant');
+    chatMessages.push(data.message);
+  } catch (error) {
+    addMessage(`연결 오류: ${error.message}`, 'assistant');
+  } finally {
+    sendButton.disabled = false;
+    input.focus();
+  }
 });
 
 input.addEventListener('input', autoResize);
 input.addEventListener('keydown', (event) => {
+  // Enter는 전송, Shift+Enter는 textarea 기본 줄바꿈으로 유지한다.
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault();
     form.requestSubmit();
@@ -83,6 +135,7 @@ toolToggle.addEventListener('click', () => {
 
 document.querySelector('#newChat').addEventListener('click', () => {
   conversation.replaceChildren();
+  chatMessages = [];
   welcome.hidden = false;
   document.querySelectorAll('.history-item').forEach(item => item.classList.remove('active'));
   input.focus();

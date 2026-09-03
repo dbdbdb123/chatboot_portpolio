@@ -140,3 +140,25 @@ MCP 연결 방식은 로컬 MCP 서버를 위한 `stdio`와 원격 MCP 서버를
 4. 도구 호출 전후 결과와 오류를 확인할 수 있는 감사 로그를 추가합니다. 단, 비밀 정보는 기록하지 않습니다.
 5. 작은 모델에서 도구 선택과 인자 생성이 안정적인지 테스트합니다.
 6. 안정성이 확인된 읽기 전용 도구부터 운영 환경에 활성화합니다.
+
+## 웹 앱 실행
+
+```powershell
+uv sync --extra dev
+uv run uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+브라우저에서 `http://127.0.0.1:8000`을 엽니다. Ollama는 별도로 실행되어 있어야 하며
+기본 주소와 모델은 각각 `http://127.0.0.1:11434`, `qwen3:0.6b`입니다.
+
+### API
+
+- `GET /api/health`: Ollama 및 MCP 구성 상태
+- `GET /api/mcp/tools`: 허용 목록을 통과한 MCP 도구
+- `POST /api/chat`: Ollama 대화와 MCP 도구 호출 루프
+- `GET /docs`: FastAPI OpenAPI 문서
+
+기본 설정은 `.setting/settings.json`, 환경 변수 예시는 `.setting/.env.example`에 있습니다.
+환경 변수는 JSON 설정을 덮어씁니다. MCP 서버는 `MCP_SERVERS_JSON`에 등록하며,
+`allowed_tools`에 명시한 도구만 모델에 노출됩니다. 초기 구현은 로컬 `stdio` 전송을
+사용하고 도구 입력 스키마, 실행 제한 시간, 최대 반복 횟수를 검증합니다.
