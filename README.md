@@ -30,6 +30,11 @@ Ollama가 설치된 환경에서 다음 명령으로 모델을 내려받아 실�
 ollama run qwen3:0.6b
 ```
 
+현재 Windows 개발 환경에서는 C: 디스크 공간이 부족해 Ollama와 모델을 각각
+`D:\Ollama`, `D:\Ollama\models`에 설치했습니다. 사용자 환경변수
+`OLLAMA_MODELS=D:\Ollama\models`가 설정되어 있으므로 재로그인 후 실행되는
+Ollama도 같은 모델 저장소를 사용합니다.
+
 Ollama API의 기본 주소는 다음과 같습니다.
 
 ```text
@@ -162,3 +167,25 @@ uv run uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 환경 변수는 JSON 설정을 덮어씁니다. MCP 서버는 `MCP_SERVERS_JSON`에 등록하며,
 `allowed_tools`에 명시한 도구만 모델에 노출됩니다. 초기 구현은 로컬 `stdio` 전송을
 사용하고 도구 입력 스키마, 실행 제한 시간, 최대 반복 횟수를 검증합니다.
+
+## Docker Compose 배포
+
+Docker Desktop이 실행된 상태에서 다음 명령으로 전체 서비스를 배포합니다.
+
+```powershell
+docker compose up --build -d
+```
+
+Compose는 CPU용 Ollama를 먼저 시작하고 `qwen3:0.6b` 모델을 영구 볼륨에 준비한 뒤
+FastAPI를 시작합니다. 웹 UI는 `http://127.0.0.1:8000`, 컨테이너 Ollama API는
+호스트의 `http://127.0.0.1:11435`에서 확인할 수 있습니다. 컨테이너 내부 FastAPI는
+Compose DNS 이름인 `http://ollama:11434`를 사용합니다.
+
+```powershell
+docker compose ps
+docker compose logs -f app
+docker compose down
+```
+
+`docker compose down`은 컨테이너만 제거하고 모델 볼륨은 유지합니다. 모델까지 지우려는
+경우에만 명시적으로 `docker compose down --volumes`를 사용합니다.

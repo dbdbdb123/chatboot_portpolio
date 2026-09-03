@@ -1,0 +1,50 @@
+name: mori
+
+services:
+  # 실제 Qwen 모델을 로딩하고 추론 API를 제공한다.
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama-data:/root/.ollama
+    ports:
+      - "127.0.0.1:11435:11434"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  # 볼륨에 모델이 없을 때만 레이어를 내려받고, 준비가 끝나면 종료한다.
+  model-init:
+    image: ollama/ollama:latest
+    restart: "no"
+    volumes:
+      - ollama-data:/root/.ollama
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["OLLAMA_HOST=http://ollama:11434 ollama pull qwen3:0.6b"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  # UI, REST API, MCP Host/Client 역할을 담당한다.
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: qwen3:0.6b
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      ollama:
+        condition: service_healthy
+      model-init:
+        condition: service_completed_successfully
+
+volumes:
+  # compose down 후에도 다운로드한 모델을 유지한다.
+  ollama-data:

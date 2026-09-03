@@ -17,26 +17,6 @@
         </svg>
       </div>
 
-      <button class="new-chat" id="newChat" type="button">
-        <span aria-hidden="true">＋</span> 새 대화
-      </button>
-
-      <nav class="history" aria-label="최근 대화">
-        <p class="section-label">최근 대화</p>
-        <button class="history-item active" type="button" data-title="프로젝트 구조 제안">
-          <span class="chat-icon" aria-hidden="true"></span>
-          <span>프로젝트 구조 제안</span><time>10:24</time>
-        </button>
-        <button class="history-item" type="button" data-title="MCP란 무엇인가요?">
-          <span class="chat-icon" aria-hidden="true"></span>
-          <span>MCP란 무엇인가요?</span><time>어제</time>
-        </button>
-        <button class="history-item" type="button" data-title="Ollama 모델 관리">
-          <span class="chat-icon" aria-hidden="true"></span>
-          <span>Ollama 모델 관리</span><time>어제</time>
-        </button>
-      </nav>
-
       <div class="sidebar-footer">
         <button type="button" class="sidebar-link" id="settingsButton"><span aria-hidden="true">⚙</span> 설정</button>
         <button type="button" class="sidebar-link" id="helpButton"><span aria-hidden="true">?</span> 도움말</button>
@@ -62,38 +42,6 @@
           </div>
 
           <div class="conversation" id="conversation">
-            <article class="message user-message">
-              <div class="bubble">이 프로젝트의 인증 흐름을 문서에서 찾아 요약해줘.<span class="message-meta">10:24 <b>✓✓</b></span></div>
-            </article>
-
-            <article class="message assistant-message">
-              <div class="avatar" aria-hidden="true">✦</div>
-              <div class="bubble">네, 문서를 검색해서 인증 흐름을 요약해드릴게요.<span class="message-meta">10:24</span></div>
-            </article>
-
-            <details class="tool-card" open>
-              <summary>
-                <span class="tool-card-icon" aria-hidden="true">⌕</span>
-                <span><strong>문서 검색</strong><small>저장소 문서에서 인증 흐름 관련 내용을 찾았습니다.</small></span>
-                <span class="tool-status">✓ <b>완료</b></span>
-                <span class="tool-chevron">⌄</span>
-              </summary>
-              <div class="tool-detail">README.md와 프로젝트 문서 3개를 검색했습니다.</div>
-            </details>
-
-            <article class="message assistant-message">
-              <div class="avatar" aria-hidden="true">✦</div>
-              <div class="bubble response-bubble">
-                <p>인증 흐름은 다음과 같습니다.</p>
-                <ol>
-                  <li>사용자가 로그인 페이지에서 이메일/비밀번호를 입력합니다.</li>
-                  <li>서버는 자격 증명을 검증하고 JWT 액세스 토큰과 리프레시 토큰을 발급합니다.</li>
-                  <li>클라이언트는 액세스 토큰을 Authorization 헤더에 담아 API 요청을 보냅니다.</li>
-                  <li>액세스 토큰이 만료되면 리프레시 토큰으로 갱신합니다.</li>
-                </ol>
-                <span class="message-meta">10:24</span>
-              </div>
-            </article>
           </div>
         </div>
 
