@@ -24,7 +24,7 @@ router = APIRouter(prefix=API_PREFIX)
 async def stream_chat(payload: ChatRequest, service: ChatService = Depends(get_chat_service)):
     async def events():
         pending = None
-        async with aclosing(service.stream(payload.messages, payload.use_tools, payload.model)) as stream:
+        async with aclosing(service.stream(payload.messages, payload.use_tools, payload.model, payload.think)) as stream:
             try:
                 pending = asyncio.create_task(anext(stream))
                 while True:
@@ -87,7 +87,7 @@ async def chat(
 ) -> ChatResponse:
     """대화 요청을 처리하고 하위 서비스 오류를 적절한 HTTP 상태로 변환한다."""
     try:
-        return await service.run(payload.messages, payload.use_tools, payload.model)
+        return await service.run(payload.messages, payload.use_tools, payload.model, payload.think)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=503, detail="Ollama is unavailable") from exc
     except (ToolValidationError, ValueError) as exc:

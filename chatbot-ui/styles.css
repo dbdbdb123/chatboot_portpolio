@@ -159,6 +159,8 @@ button { color: inherit; }
 .icon-button { padding: 8px; color: #637084; font-size: 20px; }
 .tool-toggle { padding: 7px 10px; border-radius: 7px; background: #f2f4f6; font-size: 13px; }
 .tool-toggle[aria-pressed="false"] { color: #8a94a4; background: transparent; }
+#thinkingToggle { margin-left: 6px; white-space: nowrap; }
+#thinkingToggle:disabled { cursor: wait; opacity: .6; }
 .send-button { display: grid; width: 43px; height: 43px; margin-left: auto; place-items: center; border: 0; border-radius: 50%; color: #fff; background: var(--green); font-size: 18px; cursor: pointer; transition: background .2s, transform .2s; }
 .send-button:hover { background: var(--green-dark); transform: scale(1.04); }
 .send-button:disabled { opacity: .45; cursor: not-allowed; }

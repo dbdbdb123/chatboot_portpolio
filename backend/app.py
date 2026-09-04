@@ -10,7 +10,7 @@ from backend.api.routes import router
 from backend.constants.app import APP_NAME, APP_VERSION
 from backend.constants.paths import UI_DIRECTORY
 from backend.dataclass.settings import Settings
-from backend.mcp.stdio_gateway import StdioMCPGateway
+from backend.mcp.stdio_gateway import ConfiguredMCPGateway
 from backend.ollama import OllamaClient
 from backend.services.chat import ChatService
 
@@ -19,7 +19,7 @@ async def lifespan(app: FastAPI):
     """프로세스당 한 번 공유 클라이언트를 생성하고 종료 시 정리한다."""
     settings = Settings.load()
     ollama = OllamaClient(settings.ollama_base_url, settings.request_timeout_seconds)
-    mcp = StdioMCPGateway(settings.mcp_servers)
+    mcp = ConfiguredMCPGateway(settings.mcp_servers)
     app.state.settings = settings
     app.state.ollama = ollama
     app.state.mcp = mcp

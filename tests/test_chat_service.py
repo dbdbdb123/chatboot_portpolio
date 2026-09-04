@@ -25,7 +25,7 @@ class FakeOllama:
     def __init__(self) -> None:
         self.calls = 0
 
-    async def stream_chat(self, model, messages, tools=None):
+    async def stream_chat(self, model, messages, tools=None, think=False):
         yield await self.chat(model, messages, tools)
 
     async def chat(self, model: str, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None) -> dict[str, Any]:

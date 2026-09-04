@@ -5,6 +5,16 @@ const input = document.querySelector('#messageInput');
 const conversation = document.querySelector('#conversation');
 const welcome = document.querySelector('#welcome');
 const toolToggle = document.querySelector('#toolToggle');
+const thinkingToggle = document.querySelector('#thinkingToggle');
+const thinkingState = document.querySelector('#thinkingState');
+
+function setThinking(enabled) {
+  thinkingToggle.setAttribute('aria-pressed', String(enabled));
+  thinkingState.textContent = enabled ? 'ON' : 'OFF';
+}
+try {
+  setThinking(localStorage.getItem('mori.think') === 'true');
+} catch { /* 저장소가 차단되어도 기본 OFF로 사용할 수 있다. */ }
 const toast = document.querySelector('#toast');
 const sendButton = document.querySelector('#sendButton');
 const modelBadge = document.querySelector('#modelBadge');
@@ -167,6 +177,8 @@ form.addEventListener('submit', async (event) => {
   input.value = '';
   autoResize();
   sendButton.disabled = true;
+  const think = thinkingToggle.getAttribute('aria-pressed') === 'true';
+  thinkingToggle.disabled = true;
   const loadingIndicator = addLoadingIndicator();
   let currentMessage = null;
   try {
@@ -177,6 +189,7 @@ form.addEventListener('submit', async (event) => {
       body: JSON.stringify({
         messages: chatMessages,
         use_tools: toolToggle.getAttribute('aria-pressed') === 'true',
+        think,
       }),
     });
     if (!response.ok) {
@@ -221,6 +234,7 @@ form.addEventListener('submit', async (event) => {
   } finally {
     loadingIndicator.remove();
     sendButton.disabled = false;
+    thinkingToggle.disabled = false;
     input.focus();
   }
 });
@@ -238,6 +252,13 @@ toolToggle.addEventListener('click', () => {
   const enabled = toolToggle.getAttribute('aria-pressed') !== 'true';
   toolToggle.setAttribute('aria-pressed', String(enabled));
   showToast(enabled ? '도구 사용이 켜졌습니다.' : '도구 사용이 꺼졌습니다.');
+});
+
+thinkingToggle.addEventListener('click', () => {
+  const enabled = thinkingToggle.getAttribute('aria-pressed') !== 'true';
+  setThinking(enabled);
+  try { localStorage.setItem('mori.think', String(enabled)); } catch { /* 선택은 현재 탭에서 유지 */ }
+  showToast(enabled ? 'Thinking ON: 답변 전 추론을 수행합니다.' : 'Thinking OFF: 바로 답변을 생성합니다.');
 });
 
 document.querySelector('#newChat')?.addEventListener('click', () => {

@@ -17,6 +17,7 @@ class ChatRequest(BaseModel):
     """클라이언트가 보내는 대화 요청."""
     messages: list[ChatMessage] = Field(min_length=1, max_length=100)
     use_tools: bool = True
+    think: bool = False
     model: str | None = None
 
 

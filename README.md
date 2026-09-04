@@ -118,7 +118,7 @@ FastAPI 또는 Flask 백엔드 (MCP Host/Client)
 5. MCP 도구 실행 결과를 모델에 다시 전달합니다.
 6. 모델이 생성한 최종 답변을 사용자에게 반환합니다.
 
-MCP 연결 방식은 로컬 MCP 서버를 위한 `stdio`와 원격 MCP 서버를 위한 Streamable HTTP를 고려합니다. 초기 버전에서는 구현과 운영이 단순한 로컬 `stdio` 연결부터 지원합니다.
+MCP 연결은 로컬 서버용 `stdio`와 원격 서버용 `streamable_http`를 지원합니다.
 
 ### 모델 및 도구 설계 제한
 
@@ -180,10 +180,41 @@ SSE 이벤트는 `model`(모델명), `round`(추론 시작), `delta`(텍스트 �
 
 기본 설정은 `.setting/settings.json`, 환경 변수 예시는 `.setting/.env.example`에 있습니다.
 환경 변수는 JSON 설정을 덮어씁니다. MCP 서버는 `MCP_SERVERS_JSON`에 등록하며,
-`allowed_tools`에 명시한 도구만 모델에 노출됩니다. 초기 구현은 로컬 `stdio` 전송을
+`allowed_tools`에 명시한 도구만 모델에 노출됩니다. `stdio` 또는 `streamable_http` 전송을
 사용하고 도구 입력 스키마, 실행 제한 시간, 최대 반복 횟수를 검증합니다.
 
+### AWS OCR MCP 연결
+
+`compose.mcp.yaml`은 기존 `ocr-pipeline_default` Docker 네트워크를 통해
+OCR MCP와 운영 조회 MCP를 연결합니다. OCR Nginx의 내부 주소를 사용하며
+기존 가상 호스트 설정에 맞춰 `Host: localhost`를 전달합니다.
+새 Mori 이미지를 빌드·전달한 뒤 AWS의 `/home/ubuntu/mori`에서 실행합니다.
+
+```sh
+docker compose -f compose.yaml -f compose.mcp.yaml up -d --no-deps app
+```
+
+이후 앱 재생성에도 두 Compose 파일을 함께 지정해야 연결 설정이 유지됩니다.
+`GET /api/mcp/tools`에서 `ocr`의 `inspect_document`, `get_ocr_capabilities`,
+`check_ocr_health`와 `ops`의 `get_ocr_summary`, `get_ocr_failures`,
+`get_ocr_event`를 확인할 수 있습니다. 채팅의 도구 버튼을 켜고
+“OCR 서버 상태 확인해 줘”, “오늘 OCR 성공률 조회해 줘”라고 요청합니다.
+문서 분석 도구는 실제 Base64와 MIME 형식이 필요합니다. 현재 채팅에는 파일
+첨부 기능이 없으므로 파일을 고르는 문서 분석 흐름은 별도 구현이 필요합니다.
+
+일반 HTTP 서버 설정은 `transport: "streamable_http"`, `url`, 선택적 `headers`,
+`allowed_tools`, `timeout_seconds`를 사용합니다. 로컬 실행에서는 로컬에서
+접근 가능한 서버 주소를 별도로 설정해야 합니다. AWS용 Docker DNS 주소는
+해당 네트워크 안에서만 해석됩니다.
+
 ## Docker Compose 배포
+
+채팅 입력창의 `Thinking ON/OFF` 버튼으로 추론 모드를 선택합니다. 기본값은 OFF이며
+브라우저에 선택을 저장합니다. ON은 답변 전 추론을 수행하므로 더 오래 걸릴 수 있습니다.
+`POST /api/chat`과 `/api/chat/stream`은 `think: true | false`를 받으며,
+생략하면 OFF입니다. 선택은 MCP 호출 후 이어지는 모든 모델 요청에도 적용됩니다.
+추론 원문은 화면에 노출하지 않고 최종 답변을 SSE로 표시합니다.
+Ollama의 [think 요청 필드](https://docs.ollama.com/capabilities/thinking)를 사용합니다.
 
 Docker Desktop이 실행된 상태에서 다음 명령으로 전체 서비스를 배포합니다.
 

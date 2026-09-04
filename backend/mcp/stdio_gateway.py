@@ -1,13 +1,17 @@
-"""공식 MCP Python SDK를 이용한 로컬 stdio 게이트웨이."""
+"""공식 MCP Python SDK를 이용한 stdio/HTTP 게이트웨이."""
 
 from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any
+from contextlib import AsyncExitStack
+
+import httpx2
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.client.streamable_http import streamable_http_client
 
 from backend.dataclass.mcp import MCPTool, MCPToolResult
 from backend.dataclass.settings import MCPServerConfig
@@ -15,8 +19,8 @@ from backend.mcp.interface import MCPGateway
 from backend.mcp.validation import ToolValidationError, validate_arguments
 
 
-class StdioMCPGateway(MCPGateway):
-    """Allow-listed MCP client using isolated, short-lived stdio sessions."""
+class ConfiguredMCPGateway(MCPGateway):
+    """Allow-listed MCP client supporting stdio and Streamable HTTP."""
 
     def __init__(self, servers: tuple[MCPServerConfig, ...]) -> None:
         self._servers = {server.name: server for server in servers}
@@ -27,12 +31,21 @@ class StdioMCPGateway(MCPGateway):
         config: MCPServerConfig,
         operation: Callable[[ClientSession], Awaitable[Any]],
     ) -> Any:
-        """제한 시간 안에서 서버 프로세스 연결·초기화·정리를 수행한다."""
-        params = StdioServerParameters(
-            command=config.command, args=list(config.args), env=config.env or None
-        )
+        """제한 시간 안에서 연결·초기화·정리를 수행한다."""
         async with asyncio.timeout(config.timeout_seconds):
-            async with stdio_client(params) as (read, write):
+            async with AsyncExitStack() as stack:
+                if config.transport == "streamable_http":
+                    client = await stack.enter_async_context(httpx2.AsyncClient(
+                        headers=config.headers, timeout=config.timeout_seconds,
+                    ))
+                    read, write, *_ = await stack.enter_async_context(
+                        streamable_http_client(config.url, http_client=client)
+                    )
+                else:
+                    params = StdioServerParameters(
+                        command=config.command, args=list(config.args), env=config.env or None
+                    )
+                    read, write = await stack.enter_async_context(stdio_client(params))
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     return await operation(session)
@@ -60,7 +73,7 @@ class StdioMCPGateway(MCPGateway):
         return discovered
 
     async def call_tool(self, server: str, name: str, arguments: dict[str, Any]) -> MCPToolResult:
-        """도구명과 입력값을 검증한 후 새 stdio 세션에서 실행한다."""
+        """도구명과 입력값을 검증한 후 새 MCP 세션에서 실행한다."""
         config = self._servers.get(server)
         if config is None or name not in config.allowed_tools:
             raise ToolValidationError("tool is not allow-listed")
@@ -86,3 +99,7 @@ class StdioMCPGateway(MCPGateway):
 
     async def close(self) -> None:
         return None
+
+
+# Existing imports remain compatible.
+StdioMCPGateway = ConfiguredMCPGateway

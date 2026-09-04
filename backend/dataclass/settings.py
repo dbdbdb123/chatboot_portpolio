@@ -7,6 +7,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from backend.constants.app import DEFAULT_MODEL, PRODUCT_NAME
 from backend.constants.environment import (
@@ -25,20 +26,38 @@ from backend.constants.paths import SETTINGS_FILE
 
 @dataclass(frozen=True, slots=True)
 class MCPServerConfig:
-    """하나의 MCP stdio 서버 실행 정보와 보안 제한."""
+    """하나의 MCP 서버 연결 정보와 보안 제한."""
     name: str
-    command: str
+    command: str = ""
     args: tuple[str, ...] = ()
     env: dict[str, str] = field(default_factory=dict)
     allowed_tools: frozenset[str] = frozenset()
     timeout_seconds: float = DEFAULT_MCP_TIMEOUT_SECONDS
+    transport: str = "stdio"
+    url: str = ""
+    headers: dict[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.transport not in {"stdio", "streamable_http"}:
+            raise ValueError("unsupported MCP transport")
+        if self.transport == "stdio" and not self.command:
+            raise ValueError("stdio MCP requires command")
+        if self.transport == "streamable_http":
+            parsed = urlsplit(self.url)
+            if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+                raise ValueError("HTTP MCP requires an http(s) URL")
+        if self.timeout_seconds <= 0:
+            raise ValueError("MCP timeout must be positive")
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "MCPServerConfig":
         """JSON 객체를 불변 설정으로 정규화한다."""
         return cls(
             name=str(data["name"]),
-            command=str(data["command"]),
+            command=str(data.get("command", "")),
+            transport=str(data.get("transport", "stdio")),
+            url=str(data.get("url", "")),
+            headers={str(key): str(value) for key, value in data.get("headers", {}).items()},
             args=tuple(str(value) for value in data.get("args", [])),
             env={str(key): str(value) for key, value in data.get("env", {}).items()},
             allowed_tools=frozenset(str(value) for value in data.get("allowed_tools", [])),

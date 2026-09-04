@@ -28,9 +28,10 @@ class OllamaClient:
         model: str,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
+        think: bool = False,
     ) -> dict[str, Any]:
         """비스트리밍 채팅 요청을 보내고 assistant 메시지만 반환한다."""
-        payload: dict[str, Any] = {"model": model, "messages": messages, "stream": False}
+        payload: dict[str, Any] = {"model": model, "messages": messages, "stream": False, "think": think}
         if tools:
             payload["tools"] = tools
         response = await self._client.post("/api/chat", json=payload)
@@ -43,8 +44,9 @@ class OllamaClient:
     async def stream_chat(
         self, model: str, messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
+        think: bool = False,
     ) -> AsyncIterator[dict[str, Any]]:
-        payload: dict[str, Any] = {"model": model, "messages": messages, "stream": True}
+        payload: dict[str, Any] = {"model": model, "messages": messages, "stream": True, "think": think}
         if tools:
             payload["tools"] = tools
         async with self._client.stream("POST", "/api/chat", json=payload) as response:

@@ -1,0 +1,14 @@
+# AWS: docker compose -f compose.yaml -f compose.mcp.yaml up -d --no-deps app
+services:
+  app:
+    networks:
+      - default
+      - ocr
+    environment:
+      MCP_SERVERS_JSON: >-
+        [{"name":"ocr","transport":"streamable_http","url":"http://ocr-pipeline-nginx-1/mcp","headers":{"Host":"localhost"},"allowed_tools":["inspect_document","get_ocr_capabilities","check_ocr_health"],"timeout_seconds":30},
+        {"name":"ops","transport":"streamable_http","url":"http://ocr-pipeline-nginx-1/ops-mcp","headers":{"Host":"localhost"},"allowed_tools":["get_ocr_summary","get_ocr_failures","get_ocr_event"],"timeout_seconds":30}]
+networks:
+  ocr:
+    external: true
+    name: ocr-pipeline_default
