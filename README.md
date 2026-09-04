@@ -1,6 +1,8 @@
-# CPU 기반 Qwen3 챗봇
+# Mori · CPU 기반 Qwen3.5 챗봇
 
-이 프로젝트는 AWS EC2에서 CPU만 사용해 Qwen3 기반 챗봇을 실행하는 것을 목표로 합니다.
+이 프로젝트는 AWS EC2에서 CPU로 Qwen3.5 2B Q4_K_M을 실행하고 OCR MCP 도구를 연결하는 챗봇입니다.
+
+개발·유지보수 절차는 [개발 문서](docs/DEVELOPMENT.md)에 정리했습니다. [Notion 개발 문서](https://app.notion.com/p/3d10800670e98163b9fac85fedcdc5de)에서도 확인할 수 있습니다.
 
 ## 확인된 AWS EC2 사양
 
@@ -186,15 +188,16 @@ SSE 이벤트는 `model`(모델명), `round`(추론 시작), `delta`(텍스트 �
 ### AWS OCR MCP 연결
 
 `compose.mcp.yaml`은 기존 `ocr-pipeline_default` Docker 네트워크를 통해
-OCR MCP와 운영 조회 MCP를 연결합니다. OCR Nginx의 내부 주소를 사용하며
-기존 가상 호스트 설정에 맞춰 `Host: localhost`를 전달합니다.
+OCR MCP와 운영 조회 MCP를 연결합니다. 각 MCP 컨테이너의 내부 주소를 사용하며
+기존 허용 호스트 설정에 맞춰 `Host: localhost`를 전달합니다.
 새 Mori 이미지를 빌드·전달한 뒤 AWS의 `/home/ubuntu/mori`에서 실행합니다.
 
 ```sh
 docker compose -f compose.yaml -f compose.mcp.yaml up -d --no-deps app
 ```
 
-이후 앱 재생성에도 두 Compose 파일을 함께 지정해야 연결 설정이 유지됩니다.
+AWS에는 같은 설정을 `compose.override.yaml`로 배치하여 기본 `docker compose` 실행에도
+자동 적용합니다. 다른 환경에서는 두 Compose 파일을 함께 지정해야 연결 설정이 유지됩니다.
 `GET /api/mcp/tools`에서 `ocr`의 `inspect_document`, `get_ocr_capabilities`,
 `check_ocr_health`와 `ops`의 `get_ocr_summary`, `get_ocr_failures`,
 `get_ocr_event`를 확인할 수 있습니다. 채팅의 도구 버튼을 켜고
@@ -246,3 +249,13 @@ docker compose down
 
 `docker compose down`은 컨테이너만 제거하고 모델 볼륨은 유지합니다. 모델까지 지우려는
 경우에만 명시적으로 `docker compose down --volumes`를 사용합니다.
+
+## 이미지 첨부 요청
+
+현재 소스는 PNG·JPEG·WebP 1장(최대 10MiB, 가로·세로 8000px 및 총 2500만 픽셀 이하)을 지원합니다. 백엔드에서 실제 형식과 디코딩 가능 여부를 검증하며 PDF·SVG·움직이는 이미지는 받지 않습니다.
+
+첨부 이미지는 Ollama 사용자 메시지의 `images` 배열로 전달됩니다. 일반 이미지 질문은 Qwen3.5의 시각 입력으로 답하며, OCR·텍스트 추출 요청일 때 모델이 `inspect_document`를 선택하도록 안내합니다. 백엔드가 자동 OCR을 실행하지 않습니다. 모델에 노출한 OCR 도구는 빈 인자를 사용하고, 모델이 선택한 경우에만 백엔드가 실제 이미지와 MIME을 MCP 요청에 넣습니다. Base64는 도구 실행 카드·검증 오류 응답에 표시하지 않습니다.
+
+도구 OFF에서도 이미지 질문은 가능합니다. OCR MCP를 쓰려면 도구 ON과 MCP 연결이 필요합니다. 첨부는 현재 전송에만 포함되며 후속 요청에서 같은 이미지를 다시 분석하려면 재첨부합니다. 텍스트 없이 이미지만 보내면 기본 질문은 “첨부 이미지를 설명해 줘.”입니다.
+
+JSON 채팅/SSE 요청에는 선택적 `image: {name, mime_type, data_base64}` 필드가 추가됩니다. 프런트엔드에서 미리보기·제거와 실패 시 재전송을 지원합니다. 이 변경의 로컬 테스트는 39개 통과했으며, AWS 반영은 별도 이미지 배포가 필요합니다.

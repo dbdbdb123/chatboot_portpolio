@@ -47,11 +47,17 @@
 
         <div class="composer-wrap">
           <form class="composer" id="chatForm">
+            <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+            <div id="imageAttachment" class="image-attachment" hidden>
+              <img id="imagePreview" alt="첨부 이미지 미리보기">
+              <span id="imageName"></span>
+              <button id="removeImage" type="button" aria-label="첨부 이미지 제거">×</button>
+            </div>
             <label for="messageInput" class="sr-only">메시지 입력</label>
             <textarea id="messageInput" rows="1" placeholder="무엇이든 물어보세요" maxlength="2000"></textarea>
             <div class="composer-actions">
-              <button class="icon-button" type="button" aria-label="파일 첨부">⌕</button>
-              <button class="tool-toggle" id="toolToggle" type="button" aria-pressed="true"><span>⌘</span> 도구 <span class="chevron">⌄</span></button>
+              <button class="tool-toggle" id="attachImage" type="button" aria-label="이미지 첨부" title="PNG·JPEG·WebP 1장, 최대 10MB">이미지 첨부</button>
+              <button class="tool-toggle" id="toolToggle" type="button" aria-pressed="true"><span>⌘</span> OCR 도구 <span class="chevron"></span></button>
               <button class="tool-toggle" id="thinkingToggle" type="button" aria-label="Thinking 모드" aria-pressed="false" title="켜면 답변 전 추론을 수행하며 대기 시간이 길어질 수 있습니다.">Thinking <span id="thinkingState">OFF</span></button>
               <button class="send-button" id="sendButton" type="submit" aria-label="메시지 보내기">➤</button>
             </div>

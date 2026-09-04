@@ -19,6 +19,62 @@ const toast = document.querySelector('#toast');
 const sendButton = document.querySelector('#sendButton');
 const modelBadge = document.querySelector('#modelBadge');
 
+const imageInput = document.querySelector('#imageInput');
+const attachImage = document.querySelector('#attachImage');
+const removeImage = document.querySelector('#removeImage');
+const imageAttachment = document.querySelector('#imageAttachment');
+const imagePreview = document.querySelector('#imagePreview');
+let selectedImage = null;
+let readingImage = false;
+
+function clearImage() {
+  selectedImage = null;
+  imageInput.value = '';
+  imagePreview.removeAttribute('src');
+  imageAttachment.hidden = true;
+}
+attachImage.addEventListener('click', () => imageInput.click());
+removeImage.addEventListener('click', clearImage);
+imageInput.addEventListener('change', async () => {
+  const file = imageInput.files[0];
+  if (!file) return;
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) ||
+      !file.size || file.size > 10 * 1024 * 1024) {
+    showToast('PNG·JPEG·WebP 이미지 1장, 최대 10MB까지 첨부할 수 있습니다.');
+    imageInput.value = '';
+    return;
+  }
+  readingImage = true;
+  attachImage.disabled = true;
+  removeImage.disabled = true;
+  try {
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error('이미지를 읽을 수 없습니다.'));
+      reader.readAsDataURL(file);
+    });
+    const preview = new Image();
+    preview.src = dataUrl;
+    await preview.decode();
+    if (Math.max(preview.naturalWidth, preview.naturalHeight) > 8000 ||
+        preview.naturalWidth * preview.naturalHeight > 25000000) {
+      throw new Error('가로·세로 8000px, 총 2500만 픽셀 이하 이미지를 선택해 주세요.');
+    }
+    selectedImage = { name: file.name, mime_type: file.type, data_base64: dataUrl.split(',')[1] };
+    imagePreview.src = dataUrl;
+    document.querySelector('#imageName').textContent = file.name;
+    imageAttachment.hidden = false;
+  } catch (error) {
+    showToast(error.message || '올바른 이미지 파일이 아닙니다.');
+    imageInput.value = '';
+  } finally {
+    readingImage = false;
+    attachImage.disabled = false;
+    removeImage.disabled = false;
+  }
+});
+
 function showModel(model) {
   if (typeof model !== 'string' || !model.trim()) return;
   modelBadge.textContent = model;
@@ -168,17 +224,28 @@ async function readChatStream(response, onEvent) {
 
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
-  const text = input.value.trim();
-  if (!text || sendButton.disabled) return;
+  if (readingImage || sendButton.disabled) return;
+  const image = selectedImage;
+  const text = input.value.trim() || (image ? '첨부 이미지를 설명해 줘.' : '');
+  if (!text) return;
+
 
   welcome.hidden = true;
-  addMessage(text, 'user');
+  const userMessage = addMessage(text, 'user');
+  if (image) {
+    const thumbnail = document.createElement('img');
+    thumbnail.className = 'message-image';
+    thumbnail.alt = image.name;
+    thumbnail.src = `data:${image.mime_type};base64,${image.data_base64}`;
+    userMessage.body.before(thumbnail);
+  }
   chatMessages.push({ role: 'user', content: text });
   input.value = '';
   autoResize();
   sendButton.disabled = true;
   const think = thinkingToggle.getAttribute('aria-pressed') === 'true';
   thinkingToggle.disabled = true;
+  attachImage.disabled = removeImage.disabled = toolToggle.disabled = true;
   const loadingIndicator = addLoadingIndicator();
   let currentMessage = null;
   try {
@@ -190,11 +257,13 @@ form.addEventListener('submit', async (event) => {
         messages: chatMessages,
         use_tools: toolToggle.getAttribute('aria-pressed') === 'true',
         think,
+        image,
       }),
     });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
-      throw new Error(data.detail || '요청에 실패했습니다.');
+      const detail = Array.isArray(data.detail) ? data.detail.map(item => item.msg).join(' / ') : data.detail;
+      throw new Error(detail || '요청에 실패했습니다.');
     }
     await readChatStream(response, (type, data) => {
       if (type === 'model') showModel(data.model);
@@ -224,6 +293,7 @@ form.addEventListener('submit', async (event) => {
         if (!currentMessage) currentMessage = addMessage(data.message.content, 'assistant');
         currentMessage.meta.textContent = now();
         chatMessages.push(data.message);
+        clearImage();
       }
     });
   } catch (error) {
@@ -235,6 +305,7 @@ form.addEventListener('submit', async (event) => {
     loadingIndicator.remove();
     sendButton.disabled = false;
     thinkingToggle.disabled = false;
+    attachImage.disabled = removeImage.disabled = toolToggle.disabled = false;
     input.focus();
   }
 });
@@ -251,7 +322,7 @@ input.addEventListener('keydown', (event) => {
 toolToggle.addEventListener('click', () => {
   const enabled = toolToggle.getAttribute('aria-pressed') !== 'true';
   toolToggle.setAttribute('aria-pressed', String(enabled));
-  showToast(enabled ? '도구 사용이 켜졌습니다.' : '도구 사용이 꺼졌습니다.');
+  showToast(enabled ? 'OCR 도구 사용이 켜졌습니다.' : 'OCR 도구 사용이 꺼졌습니다.');
 });
 
 thinkingToggle.addEventListener('click', () => {
@@ -266,6 +337,8 @@ document.querySelector('#newChat')?.addEventListener('click', () => {
     showToast('응답이 끝난 뒤 새 대화를 시작해 주세요.');
     return;
   }
+  if (readingImage) return;
+  clearImage();
   conversation.replaceChildren();
   chatMessages = [];
   welcome.hidden = false;

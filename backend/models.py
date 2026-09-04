@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+from backend.images import ImageAttachment
 
 
 class ChatMessage(BaseModel):
@@ -19,6 +20,13 @@ class ChatRequest(BaseModel):
     use_tools: bool = True
     think: bool = False
     model: str | None = None
+    image: ImageAttachment | None = None
+
+    @model_validator(mode="after")
+    def image_requires_user(self):
+        if self.image and self.messages[-1].role != "user":
+            raise ValueError("이미지는 마지막 사용자 메시지에 첨부해야 합니다.")
+        return self
 
 
 class ToolActivity(BaseModel):

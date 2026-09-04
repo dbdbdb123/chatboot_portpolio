@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.api.routes import router
@@ -35,6 +37,17 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title=APP_NAME, version=APP_VERSION, lifespan=lifespan)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request, exc):
+    # Pydantic's default input field can echo an entire Base64 image.
+    return JSONResponse(status_code=422, content={"detail": [
+        {"loc": list(error["loc"]), "msg": error["msg"], "type": error["type"]}
+        for error in exc.errors()
+    ]})
+
+
 app.include_router(router)
 # API 라우터를 먼저 등록해야 루트 정적 파일 마운트에 가려지지 않는다.
 app.mount("/", StaticFiles(directory=UI_DIRECTORY, html=True), name="ui")
