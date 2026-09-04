@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10" fill="none" stroke="#58708e" stroke-width="1.6"/></marker>
+<style>text{font-family:Arial,'Noto Sans KR',sans-serif;fill:#172b45}.title{font-size:38px;font-weight:700}.head{font-size:23px;font-weight:700}.body{font-size:18px}.small{font-size:16px;fill:#526781}.label{font-size:16px;font-weight:700;fill:#355a80}.wire{fill:none;stroke:#58708e;stroke-width:2.5;marker-end:url(#arrow)}.both{marker-start:url(#arrow)}.box{fill:white;stroke:#d3dfeb;stroke-width:2}</style></defs>
+<rect width="1600" height="1000" fill="#f6f8fc"/>
+<text x="65" y="70" class="title">Mori · System Architecture</text>
+<text x="65" y="106" class="body">Qwen3.5 2B Q4_K_M · FastAPI · MCP · OCR</text>
+<rect x="395" y="145" width="1150" height="725" rx="25" fill="#edf2f9" stroke="#c9d6e6" stroke-dasharray="8 6"/>
+<text x="425" y="181" class="label">AWS EC2 · Docker Compose · CPU inference</text>
+<rect x="60" y="295" width="270" height="235" rx="18" class="box"/>
+<text x="88" y="335" class="head">Browser / Chat UI</text><text x="88" y="378" class="body">HTML · CSS · JavaScript</text><text x="88" y="418" class="body">Thinking ON / OFF</text><text x="88" y="450" class="body">Tool toggle · Loading wheel</text><text x="88" y="482" class="body">SSE text + tool cards</text>
+<rect x="445" y="290" width="400" height="250" rx="18" fill="#fff" stroke="#7e9ccc" stroke-width="2"/>
+<text x="475" y="332" class="head">Mori Backend · FastAPI</text><text x="475" y="373" class="body">ChatService · tool execution loop</text><text x="475" y="414" class="body">MCP Host / Client</text><text x="475" y="450" class="body">Allow-list · Input validation</text><text x="475" y="484" class="body">Timeout · Max tool rounds</text>
+<path d="M330 365H445" class="wire"/><text x="340" y="345" class="label">POST</text>
+<path d="M445 470H330" class="wire"/><text x="345" y="502" class="label">SSE</text>
+<rect x="975" y="225" width="515" height="180" rx="18" fill="#eaf0ff" stroke="#9cb1da" stroke-width="2"/>
+<text x="1005" y="265" class="head">Ollama · Qwen3.5 2B Q4_K_M</text><text x="1005" y="306" class="body">Inference · Tool-call selection</text><text x="1005" y="339" class="body">think: true / false</text><text x="1005" y="373" class="small">Model proposes calls; backend executes tools</text>
+<path d="M845 335H975" class="wire both"/><text x="858" y="291" class="label">Chat API</text><text x="858" y="314" class="small">+ results</text>
+<path d="M645 540V620H940V498H1020" class="wire both"/>
+<text x="690" y="597" class="label">Streamable HTTP · Docker internal network</text>
+<rect x="1020" y="440" width="470" height="145" rx="18" fill="#e9f7f3" stroke="#9dcbbd" stroke-width="2"/>
+<text x="1050" y="478" class="head">OCR MCP · :8001</text><text x="1050" y="514" class="body">inspect_document · capabilities · health</text><text x="1050" y="548" class="small">3 allow-listed tools</text>
+<path d="M940 620V686H1020" class="wire both"/>
+<rect x="1020" y="620" width="470" height="135" rx="18" fill="#fff5e5" stroke="#d9be8a" stroke-width="2"/>
+<text x="1050" y="659" class="head">Operations MCP · :8002</text><text x="1050" y="695" class="body">summary · failures · event</text><text x="1050" y="730" class="small">3 allow-listed tools · read metadata</text>
+<rect x="445" y="710" width="400" height="125" rx="18" class="box"/>
+<text x="475" y="750" class="head">OCR API · :8000</text><text x="475" y="785" class="body">PaddleOCR · Tesseract</text><text x="475" y="816" class="small">Document processing · Event persistence</text>
+<path d="M1020 555H980V660H645V710" class="wire"/>
+<rect x="1050" y="790" width="410" height="55" rx="12" class="box"/><text x="1080" y="825" class="body">SQLite · Shared OCR event volume</text>
+<path d="M1255 755V790" class="wire both"/><path d="M845 800H1050" class="wire"/>
+<text x="65" y="925" class="body">Flow: User question → Qwen3.5 tool call → Validated MCP execution → Tool results → Streamed answer</text>
+<text x="65" y="963" class="small">Document OCR requires Base64 input. Chat file attachment UI is not implemented yet. · Deployment verified 2026-09-04</text>
+</svg>
