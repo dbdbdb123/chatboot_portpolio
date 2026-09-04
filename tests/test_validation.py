@@ -2,7 +2,6 @@ import pytest
 
 from backend.mcp.validation import ToolValidationError, validate_arguments
 
-
 SCHEMA = {
     "type": "object",
     "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}},

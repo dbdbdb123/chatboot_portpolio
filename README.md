@@ -2,7 +2,7 @@
 
 이 프로젝트는 AWS EC2에서 CPU로 Qwen3.5 2B Q4_K_M을 실행하고 OCR MCP 도구를 연결하는 챗봇입니다.
 
-개발·유지보수 절차는 [개발 문서](docs/DEVELOPMENT.md)에 정리했습니다. [Notion 개발 문서](https://app.notion.com/p/3d10800670e98163b9fac85fedcdc5de)에서도 확인할 수 있습니다.
+개발·유지보수 절차와 SOLID 책임 분리·정책 주입·확장 기준은 [개발 문서](docs/DEVELOPMENT.md)에 정리했습니다. [Notion 개발 문서](https://app.notion.com/p/3d10800670e98163b9fac85fedcdc5de)에서도 확인할 수 있습니다.
 
 ## 확인된 AWS EC2 사양
 
@@ -202,8 +202,8 @@ AWS에는 같은 설정을 `compose.override.yaml`로 배치하여 기본 `docke
 `check_ocr_health`와 `ops`의 `get_ocr_summary`, `get_ocr_failures`,
 `get_ocr_event`를 확인할 수 있습니다. 채팅의 도구 버튼을 켜고
 “OCR 서버 상태 확인해 줘”, “오늘 OCR 성공률 조회해 줘”라고 요청합니다.
-문서 분석 도구는 실제 Base64와 MIME 형식이 필요합니다. 현재 채팅에는 파일
-첨부 기능이 없으므로 파일을 고르는 문서 분석 흐름은 별도 구현이 필요합니다.
+문서 분석 도구는 실제 Base64와 MIME 형식이 필요합니다. 현재 채팅의 이미지
+첨부로 전달하며, 지원 형식과 처리 흐름은 아래 “이미지 첨부 요청” 절을 참조하세요.
 
 일반 HTTP 서버 설정은 `transport: "streamable_http"`, `url`, 선택적 `headers`,
 `allowed_tools`, `timeout_seconds`를 사용합니다. 로컬 실행에서는 로컬에서

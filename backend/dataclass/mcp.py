@@ -11,6 +11,7 @@ from backend.constants.app import TOOL_NAME_SEPARATOR
 @dataclass(frozen=True, slots=True)
 class MCPTool:
     """서버 정보와 입력 스키마가 결합된 호출 가능한 MCP 도구."""
+
     server: str
     name: str
     description: str
@@ -36,6 +37,7 @@ class MCPTool:
 @dataclass(frozen=True, slots=True)
 class MCPToolResult:
     """전송 방식이나 SDK 버전에 의존하지 않는 도구 실행 결과."""
+
     content: list[dict[str, Any]] = field(default_factory=list)
     structured_content: dict[str, Any] | None = None
     is_error: bool = False

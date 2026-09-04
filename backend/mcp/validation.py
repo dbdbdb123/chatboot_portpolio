@@ -7,6 +7,7 @@ from typing import Any
 
 class ToolValidationError(ValueError):
     """도구 허용 목록 또는 입력 스키마 검증 실패."""
+
     pass
 
 
@@ -24,8 +25,13 @@ def validate_arguments(arguments: dict[str, Any], schema: dict[str, Any]) -> Non
             raise ToolValidationError(f"unexpected arguments: {', '.join(sorted(extras))}")
     # 초기 읽기 전용 도구에 필요한 JSON Schema 기본 타입만 지원한다.
     type_map: dict[str, type | tuple[type, ...]] = {
-        "string": str, "number": (int, float), "integer": int,
-        "boolean": bool, "array": list, "object": dict, "null": type(None),
+        "string": str,
+        "number": (int, float),
+        "integer": int,
+        "boolean": bool,
+        "array": list,
+        "object": dict,
+        "null": type(None),
     }
     for name, value in arguments.items():
         expected_name = properties.get(name, {}).get("type")

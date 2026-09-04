@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from typing import Any
 from contextlib import AsyncExitStack
+from typing import Any
 
 import httpx2
-
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamable_http_client
+from mcp.types import CallToolResult, ListToolsResult
 
+from backend.constants.app import TOOL_NAME_SEPARATOR
+from backend.constants.enums import MCPTransport
 from backend.dataclass.mcp import MCPTool, MCPToolResult
 from backend.dataclass.settings import MCPServerConfig
 from backend.mcp.interface import MCPGateway
@@ -20,24 +22,28 @@ from backend.mcp.validation import ToolValidationError, validate_arguments
 
 
 class ConfiguredMCPGateway(MCPGateway):
-    """Allow-listed MCP client supporting stdio and Streamable HTTP."""
+    """허용 목록을 적용하며 stdio와 Streamable HTTP 연결을 제공한다."""
 
     def __init__(self, servers: tuple[MCPServerConfig, ...]) -> None:
+        """서버 설정을 이름으로 색인하고 도구 스키마 캐시를 준비한다."""
         self._servers = {server.name: server for server in servers}
         self._tool_cache: dict[str, MCPTool] = {}
 
-    async def _with_session(
+    async def _with_session[T](
         self,
         config: MCPServerConfig,
-        operation: Callable[[ClientSession], Awaitable[Any]],
-    ) -> Any:
+        operation: Callable[[ClientSession], Awaitable[T]],
+    ) -> T:
         """제한 시간 안에서 연결·초기화·정리를 수행한다."""
         async with asyncio.timeout(config.timeout_seconds):
             async with AsyncExitStack() as stack:
-                if config.transport == "streamable_http":
-                    client = await stack.enter_async_context(httpx2.AsyncClient(
-                        headers=config.headers, timeout=config.timeout_seconds,
-                    ))
+                if config.transport == MCPTransport.STREAMABLE_HTTP:
+                    client = await stack.enter_async_context(
+                        httpx2.AsyncClient(
+                            headers=config.headers,
+                            timeout=config.timeout_seconds,
+                        )
+                    )
                     read, write, *_ = await stack.enter_async_context(
                         streamable_http_client(config.url, http_client=client)
                     )
@@ -52,11 +58,13 @@ class ConfiguredMCPGateway(MCPGateway):
 
     async def list_tools(self) -> list[MCPTool]:
         """각 서버의 도구를 조회하고 명시적으로 허용된 항목만 캐시한다."""
+
+        async def fetch(session: ClientSession) -> ListToolsResult:
+            """초기화된 세션에서 SDK 형식의 도구 목록을 읽는다."""
+            return await session.list_tools()
+
         discovered: list[MCPTool] = []
         for config in self._servers.values():
-            async def fetch(session: ClientSession) -> Any:
-                return await session.list_tools()
-
             response = await self._with_session(config, fetch)
             for tool in response.tools:
                 # 서버가 광고했다는 사실만으로 신뢰하지 않고 설정의 allow-list를 적용한다.
@@ -77,16 +85,18 @@ class ConfiguredMCPGateway(MCPGateway):
         config = self._servers.get(server)
         if config is None or name not in config.allowed_tools:
             raise ToolValidationError("tool is not allow-listed")
-        cached = self._tool_cache.get(f"{server}__{name}")
+        qualified_name = f"{server}{TOOL_NAME_SEPARATOR}{name}"
+        cached = self._tool_cache.get(qualified_name)
         if cached is None:
             await self.list_tools()
-            cached = self._tool_cache.get(f"{server}__{name}")
+            cached = self._tool_cache.get(qualified_name)
         if cached is None:
             raise ToolValidationError("tool was not advertised by the MCP server")
         # 모델이 생성한 인자는 신뢰할 수 없으므로 서버로 보내기 전에 검증한다.
         validate_arguments(arguments, cached.input_schema)
 
-        async def invoke(session: ClientSession) -> Any:
+        async def invoke(session: ClientSession) -> CallToolResult:
+            """허용 목록과 스키마 검증을 통과한 인자로 SDK 도구를 호출한다."""
             return await session.call_tool(name, arguments=arguments)
 
         result = await self._with_session(config, invoke)
@@ -98,8 +108,8 @@ class ConfiguredMCPGateway(MCPGateway):
         )
 
     async def close(self) -> None:
-        return None
+        """세션을 요청마다 닫으므로 별도로 정리할 영구 연결은 없다."""
 
 
-# Existing imports remain compatible.
+# 기존 stdio 전용 이름을 사용하는 호출부와의 호환성을 유지한다.
 StdioMCPGateway = ConfiguredMCPGateway

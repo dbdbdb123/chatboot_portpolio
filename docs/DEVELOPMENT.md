@@ -1,6 +1,6 @@
 # Mori 개발 문서
 
-> 이미지 첨부 변경: 현재 소스는 PNG/JPEG/WebP 첨부를 지원합니다. 이미지는 Qwen3.5에 직접 전달하고 OCR 요청에 대한 모델의 도구 선택 시에만 MCP를 실행합니다. 아래의 파일 첨부 미구현 설명은 이전 배포 기준입니다. 최신 요청 계약과 제한은 README의 “이미지 첨부 요청” 절을 참조하세요.
+> 현재 소스는 PNG/JPEG/WebP 첨부를 지원합니다. 이미지는 Qwen3.5에 직접 전달하고 OCR 요청에 대한 모델의 도구 선택 시에만 MCP를 실행합니다. 배포 검증 기록은 별도 시점의 기록이며, 최신 요청 계약과 제한은 README의 “이미지 첨부 요청” 절을 참조하세요.
 
 기준일: 2026-09-04 · 대상: Mori 개발·유지보수 담당자
 현재 모델: **Qwen3.5 2B Q4_K_M** · Ollama 태그: `qwen3.5:2b-q4_K_M`
@@ -8,14 +8,19 @@
 
 ## 1. 목적과 구현 범위
 Mori는 Qwen3.5의 자연어 응답과 OCR 관련 MCP 도구 호출을 조율하는 FastAPI 애플리케이션이다. 브라우저가 대화 기록을 전송하면 모델이 직접 답하거나 도구를 선택한다. 백엔드는 허용된 도구의 인자를 검증하고 실행 결과를 모델에 전달한다.
-구현 범위는 채팅 UI, Ollama 연결, SSE, Thinking 선택, stdio/Streamable HTTP MCP 연결, Docker 및 AWS 배포다. 모델 파인튜닝, 자체 OCR 엔진, 채팅 파일 첨부, 사용자 인증 및 영구 대화 저장은 현재 구현 범위에 포함되지 않는다.
+구현 범위는 채팅 UI, Ollama 연결, SSE, Thinking 선택, stdio/Streamable HTTP MCP 연결, Docker 및 AWS 배포다. 이미지 첨부는 지원하며, 모델 파인튜닝, 자체 OCR 엔진, PDF 첨부, 사용자 인증 및 영구 대화 저장은 현재 구현 범위에 포함되지 않는다.
 
 ## 2. 구성과 소스 탐색
 - `main.py`: FastAPI 앱 진입점.
 - `backend/app.py`: lifespan에서 Settings·OllamaClient·ConfiguredMCPGateway·ChatService 생성 및 종료. API 등록 후 정적 UI 마운트.
 - `backend/api/routes.py`: health, 도구 목록, JSON 채팅, SSE 채팅 라우터.
 - `backend/models.py`: 요청·응답 Pydantic 모델.
-- `backend/services/chat.py`: 모델 호출, 도구 실행, 결과 전달 루프.
+- `backend/services/chat.py`: 모델 추론과 도구 실행 순서 조율.
+- `backend/services/context.py`: 첨부 이미지와 시스템 안내를 포함한 모델 입력 구성.
+- `backend/services/tools.py`: 공통 호출 검증, 정책 적용 후 MCP 실행과 결과 변환.
+- `backend/services/tool_policy.py`: 도구 노출·실행 인자 정책 계약과 OCR 첨부 처리 규칙.
+- `backend/services/interfaces.py`: 추론 구현을 교체할 수 있는 최소 스트리밍 계약.
+- `backend/api/streaming.py`: SSE 직렬화, keep-alive, 오류 전달과 취소 정리.
 - `backend/ollama.py`: HTTPX 기반 Ollama REST 및 NDJSON 스트림 처리.
 - `backend/mcp/stdio_gateway.py`: ConfiguredMCPGateway. 파일명과 달리 stdio와 HTTP를 모두 지원하며 기존 StdioMCPGateway 이름을 별칭으로 유지.
 - `backend/mcp/interface.py`: 도구 조회·실행·종료 인터페이스.
@@ -159,7 +164,7 @@ data: {"server":"ocr","name":"check_ocr_health","arguments":{},"is_error":false}
 - get_ocr_capabilities: 인자 없음. MIME 형식, 크기·픽셀·PDF 페이지 제한, 엔진 목록 반환.
 - inspect_document: data_base64, mime_type 필수. detector와 recognizer 선택. OCR 결과 request_id/status/text 반환.
 
-현재 채팅에는 파일 첨부 흐름이 없다. 모델이 Base64를 만들어 문서를 분석하게 하지 않고 실제 파일 입력 전달 기능을 별도로 구현해야 한다.
+현재 채팅은 PNG/JPEG/WebP 이미지 1장을 첨부할 수 있다. 이미지가 있을 때 모델에는 빈 인자의 inspect_document 도구를 제공한다. 모델이 OCR을 선택하면 백엔드가 실제 Base64와 MIME을 넣어 실행하며, UI 실행 요약에는 파일명과 MIME만 표시한다.
 
 ### Operations MCP
 - get_ocr_summary: start_time, end_time ISO 8601 문자열. 처리 건수·성공률과 근거 반환.
@@ -216,10 +221,19 @@ curl -fsS http://127.0.0.1:8080/api/mcp/tools
 로컬 검증:
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
+node --check chatbot-ui/constants.js
 node --check chatbot-ui/app.js
 ```
 
-최근 배포 검증 기록(2026-09-04):
+현재 소스의 로컬 리팩터링 검증 기록(2026-09-04):
+
+- OCR 정책 분리 후 `pytest` 58개 통과.
+- Ruff 정적 검사 통과 및 공통 포맷 적용.
+- 상수 분리 시 `constants.js`와 `app.js` JavaScript 문법 검사 통과.
+- 기존 Starlette/AnyIO 의존성의 폐기 예정 API 경고 1건이 남아 있다.
+- 이 기록은 로컬 검증 결과다. 실제 모델·원격 MCP·AWS 재배포 검증을 대체하지 않는다.
+
+이전 배포 시점의 검증 기록(2026-09-04):
 - 자동화 테스트 25개 통과.
 - 도구 6개 발견, OCR 상태·지원 형식·운영 통계 실제 조회 성공.
 - Qwen3.5가 두 MCP를 호출한 Thinking OFF 시나리오: 약 48.5초에 SSE done.
@@ -247,7 +261,7 @@ docker logs --tail 100 ocr-pipeline-ops-mcp-1
 - 입력 검증은 required·기본 타입·명시된 additionalProperties=false를 처리한다. enum, 범위, 날짜 형식, 중첩 객체, $ref 등 전체 JSON Schema 검증기는 아니다. Python bool/int 관계도 엄밀히 분리하지 않는다.
 - 서버 이름 중복과 도구 목록 페이지네이션에 대한 명시적 처리가 없다.
 - MCP 일부 장애 시 나머지 서버만으로 계속하는 격리 처리가 없다. SDK 예외의 일관된 HTTP 오류 변환도 후속 과제다.
-- 입력 문서 Base64를 ToolActivity 인자로 노출할 수 있어 파일 첨부 구현 시 인자 요약·마스킹과 모델 컨텍스트 분리가 필요하다.
+- 이미지 첨부는 현재 요청에만 포함된다. 후속 요청에서 같은 이미지를 다시 분석하려면 재첨부해야 한다.
 - API 인증·사용자별 요청 제한·역할 제한은 미구현이다. 현재 공개 데모 수준과 운영 서비스 수준을 구분한다.
 - 장기 대화 요약·토큰 예산 관리·사용자 취소 버튼·재시도 정책은 미구현이다.
 - 날짜 안내는 프롬프트 수준이다. 결정적인 날짜 범위 생성이 필요하면 별도 서버 로직을 추가한다.
@@ -257,3 +271,108 @@ API 필드 변경은 models → routes → ChatService → OllamaClient → UI �
 새 도구 추가는 MCP 서버의 스키마 확인 → 최소 allow-list 등록 → 직접 호출 → 모델의 도구 선택 및 최종 응답 검증 순으로 진행한다. 외부 상태를 바꾸는 도구는 현재 조회 도구와 동일하게 자동 허용하지 않는다.
 문서·설정·배포 이미지가 서로 다른 시점을 가리키지 않도록 모델 태그와 검증 날짜를 함께 갱신한다.
 
+
+## 14. 코드 작성과 상수 관리 기준
+
+Python 3.12 이상을 기준으로 `Self`, 제네릭 타입 매개변수, `Annotated` 의존성 선언과 명시적인 반환 타입을 사용한다. 함수·메서드에는 역할을 설명하는 한국어 docstring을 작성한다. 프런트엔드는 같은 원칙으로 함수 설명과 이름 있는 이벤트 처리 함수를 사용한다.
+
+상수 분리·Enum·포맷 통일은 코드의 일관성을 위한 기준이다. SOLID 적용 여부는 별도로 책임 경계, 확장 방식, 구현체 간 계약과 의존성 방향으로 평가한다. 현재 설계와 확장 기준은 15절에 정리한다.
+
+포맷과 정적 검사 규칙은 `pyproject.toml`의 Ruff 설정으로 통일한다. 런타임 의존성을 추가하지 않고 다음 명령으로 실행한다.
+
+```powershell
+uv tool run --from ruff ruff check backend tests main.py
+uv tool run --from ruff ruff format --check backend tests main.py
+.\.venv\Scripts\python.exe -m pytest -q
+node --check chatbot-ui/constants.js
+node --check chatbot-ui/app.js
+```
+
+### 공통 상수와 Enum
+
+- `backend/constants/`에서 앱 식별자, 환경변수, 경로, 채팅 제한값, 이미지 제한값을 관리한다.
+- `backend/constants/enums.py`의 `StrEnum`은 메시지 역할, SSE 이벤트, MCP 전송 방식과 서비스 상태를 정의한다. API 문자열 값은 기존과 같다.
+- `chatbot-ui/constants.js`는 UI 제한값과 `Object.freeze`로 고정한 역할·이벤트 선택값을 제공하며 `app.js`보다 먼저 로드한다.
+- 이미지 제한과 SSE 이벤트를 변경할 때에는 Python과 JavaScript 양쪽 계약을 함께 갱신한다. 경로·용량처럼 선택지가 아닌 값은 일반 상수로 유지한다.
+
+## 15. SOLID 적용 구조와 확장 기준
+
+### 15.1 현재 평가와 적용 범위
+
+현재 규모에서는 SOLID의 주요 책임·의존성 경계를 반영한 구조다. 대화 조율, HTTP 전송, 도구 공통 실행과 OCR 정책을 분리했고 실제 구현 생성은 앱 조립부에 둔다. 다만 인터페이스 선언과 테스트 통과만으로 모든 구현의 대체 가능성이나 향후 확장성을 보장하지는 않는다.
+
+| 원칙 | 현재 적용 | 유지해야 할 경계와 한계 |
+| --- | --- | --- |
+| SRP: 단일 책임 | `ChatService`는 추론·도구 실행 순서를 조율한다. `chat_events`는 SSE 전송, `build_history`는 모델 입력 구성, `ToolExecutor`는 공통 호출 검증·실행·결과 변환, `OCRToolPolicy`는 OCR 노출·인자 규칙을 맡는다. | HTTP 처리나 새 도구의 특수 조건을 `ChatService`에 추가하지 않는다. OCR 자연어 안내는 현재 `context.py`의 프롬프트에도 존재한다. |
+| OCP: 확장에 열림 | 모델·실행기·정책을 주입해 조율 코드를 바꾸지 않고 교체할 수 있다. | 여러 도구 정책을 선택·조합하는 등록 구조는 아직 없다. 별도 정책이 늘어나면 조합 필요성을 검토한다. |
+| LSP: 대체 가능 | `Protocol` 계약에 맞는 대체 모델·실행기·정책으로 대화를 처리하는 테스트가 있다. | 반환 타입뿐 아니라 이벤트 순서, 오류 전달, 취소·자원 정리도 유지해야 한다. 모든 대체 구현에 공통 계약 테스트를 적용한 상태는 아니다. |
+| ISP: 인터페이스 분리 | 조회는 `MCPToolCatalog`, 호출은 `MCPToolCaller`, 수명주기 종료는 `MCPGateway`로 구분한다. | 조회만 필요한 객체에 실행·종료 메서드를 요구하지 않는다. 정책의 노출과 인자 변환은 같은 규칙을 공유하므로 `ToolPolicy`에 함께 둔다. |
+| DIP: 추상화에 의존 | 서비스와 실행기는 `Protocol`에 의존하며, `lifespan`에서 구체 구현을 생성한다. | 서비스 내부에서 `OllamaClient`, `ConfiguredMCPGateway`, `ToolExecutor`, `OCRToolPolicy`를 새로 생성하지 않는다. |
+
+### 15.2 책임과 인터페이스
+
+| 파일·구성 요소 | 책임 | 사용하는 계약 |
+| --- | --- | --- |
+| `backend/app.py`의 `lifespan` | 설정 로드, 구체 구현 생성·주입, 앱 종료 시 자원 정리 | 실제 Ollama·MCP·실행기·정책을 조립 |
+| `backend/services/chat.py`의 `ChatService` | 도구 조회, 정책 적용, 추론 반복, 실행 요약·최종 결과 이벤트 생성 | `ChatModel`, `MCPToolCatalog`, `ToolRunner`, `ToolPolicy` |
+| `backend/services/context.py`의 `build_history` | 원본 메시지를 보존하며 이미지와 시스템 안내를 모델 입력에 추가 | 메시지·도구·이미지 데이터 |
+| `backend/services/tools.py`의 `ToolExecutor` | 등록된 도구명·객체 인자 확인, 정책 인자 적용, MCP 실행과 결과 변환 | `MCPToolCaller`, `ToolPolicy` |
+| `backend/services/tool_policy.py`의 `OCRToolPolicy` | OCR 노출 여부, 모델용 빈 스키마, 실제 첨부 주입, 공개용 인자 구성 | `ToolPolicy`의 두 메서드 구현 |
+| `backend/api/streaming.py`의 `chat_events` | SSE 직렬화, keep-alive, 사용자용 오류, 대기 작업 취소 | `ChatService`의 이벤트 스트림 |
+| `backend/mcp/stdio_gateway.py`의 `ConfiguredMCPGateway` | 전송 연결, 허용 목록·입력 스키마 검증, SDK 결과 변환 | 조회·호출·종료 계약을 모두 구현 |
+
+`ChatModel.stream_chat`은 종료 가능한 비동기 생성기를 반환한다. `ToolRunner.execute`는 `ToolExecution`을 반환하며, 여기에는 UI용 `activity`와 후속 추론용 `message`가 포함된다. `ToolPolicy.prepare_arguments`가 반환하는 `ToolArguments`는 서버 전달용 `execution`과 UI 공개용 `display`를 구분한다.
+
+### 15.3 앱 조립과 동일 정책 주입
+
+현재 조립은 `backend/app.py`의 `lifespan`에 있다. 아래 코드는 이미 생성된 `ollama`, `mcp`, `settings`를 사용한 해당 부분이다.
+
+```python
+tool_policy = OCRToolPolicy()
+chat_service = ChatService(
+    ollama,
+    mcp,
+    settings.ollama_model,
+    settings.max_tool_rounds,
+    tool_executor=ToolExecutor(mcp, tool_policy),
+    tool_policy=tool_policy,
+)
+```
+
+`tool_executor`와 `tool_policy`는 필수 키워드 인자다. 같은 정책 인스턴스를 서비스와 실행기에 전달해야 도구 노출 규칙과 실행 인자 규칙이 일치한다. 현재 생성자가 동일 인스턴스 여부를 강제하지 않으므로 앱 조립부와 테스트에서 이 관계를 유지한다.
+
+`ChatService`는 MCP의 조회만 사용한다. 실제 호출은 주입된 실행기를 통해 수행한다. 앱 종료 시 연결 정리는 조립부의 책임이며, 모델 스트림과 요청별 MCP 세션의 정리는 각 처리 계층에서 수행한다.
+
+### 15.4 OCR 정책의 처리 계약
+
+1. 이미지가 없으면 `prepare_tools`가 OCR 도구를 모델 목록에서 제외한다. 일반 도구는 유지한다.
+2. 이미지가 있으면 OCR 도구를 인자 없는 스키마로 노출한다. 모델에 Base64를 도구 인자로 생성하도록 요구하지 않는다.
+3. 모델이 도구를 요청하면 `ToolExecutor`가 등록된 이름인지, 인자가 JSON 객체인지 확인한다.
+4. `prepare_arguments`는 OCR에 첨부가 있는지와 모델 인자가 비어 있는지 확인한다. 잘못된 요청은 MCP 호출 전에 거부한다.
+5. 서버 전달용 인자에는 실제 `data_base64`·`mime_type`을 넣고, UI 공개용 인자에는 파일명·MIME만 넣는다.
+6. MCP 게이트웨이는 원래 서버 스키마와 허용 목록으로 실제 인자를 검증한 뒤 호출한다.
+
+도구 정책은 MCP 허용 목록이나 서버 입력 검증을 대신하지 않는다. 일반 도구의 인자는 현재 정책에서 그대로 전달한다. 또한 OCR 정책이 도구를 실행하기로 결정하지는 않는다. 일반 이미지 질문은 모델의 시각 입력을 사용하고 OCR 호출 여부는 모델이 선택한다.
+
+### 15.5 새 기능·도구를 추가할 때
+
+- 일반 조회 도구가 기존 인자 전달 방식으로 충분하면 MCP 설정과 허용 목록을 추가하고 통합 흐름을 검증한다. 정책 클래스를 자동으로 늘리지 않는다.
+- 새로운 도구에 첨부 주입·인자 변환·공개 정보 제한이 필요하면 해당 규칙을 정책으로 구현하고 앱 조립부에서 연결한다. `ChatService`나 `ToolExecutor`에 도구 이름별 분기를 추가하지 않는다.
+- OCR과 독립된 정책이 함께 필요해지면 정책 선택·조합 구조를 검토한다. 이 구조는 현재 미구현이며, 확장 시 기존 OCR 규칙과 일반 도구 동작을 보존해야 한다.
+- 추론 구현을 바꾸면 `ChatModel` 계약에 맞추고 Thinking 전달, 응답 조각, 도구 호출, 오류·종료 동작을 확인한다.
+- 모델 안내도 바뀌는 기능이면 `context.py`의 프롬프트를 함께 검토한다. 정책 교체만으로 자연어 안내까지 자동 변경되지는 않는다.
+
+현재 단계에서는 추가 계층보다 실제 요구에 맞는 경계를 유지한다. 추상화는 별도 책임 또는 실제 교체 필요성이 생겼을 때 추가한다.
+
+### 15.6 검증 근거와 남은 점검
+
+| 검증 파일 | 확인하는 동작 |
+| --- | --- |
+| `tests/test_chat_service.py` | 기본 도구 실행, 미등록·잘못된 호출 차단, 실행기 교체, 조회 전용·호출 전용 구현 사용 |
+| `tests/test_tool_policy.py` | 첨부 누락·임의 OCR 인자 차단, 주입한 정책의 노출·실행 동시 적용, 공개용 인자 분리 |
+| `tests/test_images.py` | 실제 이미지 검증, 모델의 OCR 선택, 도구 OFF 이미지 처리, Base64 노출 방지 |
+| `tests/test_streaming.py` | 응답 조각 순서, SSE 오류 처리, keep-alive, 소비자 종료 시 작업 정리 |
+| `tests/test_thinking.py` | 일반·스트리밍 요청과 도구 호출 이후 Thinking 선택 유지 |
+| `tests/test_constants.py` | Enum 도입 후 기존 문자열 입력·직렬화 호환성 |
+
+현재 58개 테스트 통과는 위 구현과 테스트 시나리오에 대한 근거다. 모든 구현체의 예외·취소 계약, 실제 원격 서비스 장애, 장시간 운영까지 검증했다는 의미는 아니다. 새 구현체에는 해당 경로의 계약 테스트를 적용하고, 배포 전에 실제 Ollama·MCP 연결을 별도로 확인한다.

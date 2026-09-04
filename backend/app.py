@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -15,9 +17,12 @@ from backend.dataclass.settings import Settings
 from backend.mcp.stdio_gateway import ConfiguredMCPGateway
 from backend.ollama import OllamaClient
 from backend.services.chat import ChatService
+from backend.services.tool_policy import OCRToolPolicy
+from backend.services.tools import ToolExecutor
+
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """프로세스당 한 번 공유 클라이언트를 생성하고 종료 시 정리한다."""
     settings = Settings.load()
     ollama = OllamaClient(settings.ollama_base_url, settings.request_timeout_seconds)
@@ -25,8 +30,14 @@ async def lifespan(app: FastAPI):
     app.state.settings = settings
     app.state.ollama = ollama
     app.state.mcp = mcp
+    tool_policy = OCRToolPolicy()
     app.state.chat_service = ChatService(
-        ollama, mcp, settings.ollama_model, settings.max_tool_rounds
+        ollama,
+        mcp,
+        settings.ollama_model,
+        settings.max_tool_rounds,
+        tool_executor=ToolExecutor(mcp, tool_policy),
+        tool_policy=tool_policy,
     )
     try:
         yield
@@ -40,12 +51,17 @@ app = FastAPI(title=APP_NAME, version=APP_VERSION, lifespan=lifespan)
 
 
 @app.exception_handler(RequestValidationError)
-async def validation_error(request, exc):
-    # Pydantic's default input field can echo an entire Base64 image.
-    return JSONResponse(status_code=422, content={"detail": [
-        {"loc": list(error["loc"]), "msg": error["msg"], "type": error["type"]}
-        for error in exc.errors()
-    ]})
+async def validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """첨부 원문이 노출되지 않도록 입력값을 제외한 검증 오류만 반환한다."""
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": [
+                {"loc": list(error["loc"]), "msg": error["msg"], "type": error["type"]}
+                for error in exc.errors()
+            ]
+        },
+    )
 
 
 app.include_router(router)
