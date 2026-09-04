@@ -20,7 +20,14 @@ from backend.constants.images import (
 
 
 class ImageAttachment(BaseModel):
-    """실제 이미지 내용과 자원 제한을 검증한 단일 첨부 데이터."""
+    """실제 파일 내용 검증을 수행하는 단일 이미지 첨부 요청 모델.
+
+    name은 표시용 파일명, mime_type은 선언된 형식, data_base64는 파일 원문이다.
+    생성 과정에서 Base64·용량·실제 형식·해상도·프레임 수와 디코딩 가능성을
+    검증하며 PNG·JPEG·WebP 정지 이미지만 받는다. 제한값은 constants.images에 둔다.
+    data_base64의 repr=False는 객체 표현에서만 숨기며 직렬화에서 제거하지 않는다.
+    오류 응답과 UI 노출 방지는 별도 처리 계층에서 보장해야 한다.
+    """
 
     name: str = Field(min_length=1, max_length=MAX_IMAGE_NAME_LENGTH)
     mime_type: str
@@ -28,7 +35,14 @@ class ImageAttachment(BaseModel):
 
     @model_validator(mode="after")
     def validate_image(self) -> Self:
-        """Base64와 이미지 형식·해상도·프레임을 검증하고 디코딩 가능한지 확인한다."""
+        """첨부 원문이 지원 형식과 자원 제한을 만족하는 실제 이미지인지 검증한다.
+
+        Base64를 엄격히 디코딩하고 용량, 선언 MIME과 실제 형식, 해상도,
+        프레임 수를 확인한 뒤 파일 검증과 실제 픽셀 디코딩을 수행한다.
+        성공하면 현재 인스턴스를 반환하며 원본 필드값을 변환하지 않는다.
+        손상된 파일·지원하지 않는 형식·제한 초과는 ValueError로 전달한다.
+        이미지 객체는 컨텍스트 관리자로 닫으며 파일을 디스크에 저장하지 않는다.
+        """
         if self.mime_type not in IMAGE_MIME_TYPES.values():
             raise ValueError("PNG, JPEG, WebP 이미지만 첨부할 수 있습니다.")
         try:

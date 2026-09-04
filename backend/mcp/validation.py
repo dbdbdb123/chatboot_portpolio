@@ -6,7 +6,13 @@ from typing import Any
 
 
 class ToolValidationError(ValueError):
-    """도구 허용 목록 또는 입력 스키마 검증 실패."""
+    """도구 접근 제한이나 지원하는 입력 스키마 검증 실패를 나타낸다.
+
+    ValueError를 상속해 잘못된 도구 요청을 값 오류로 처리할 수 있게 한다.
+    JSON 채팅 API에서는 400으로 변환하고 스트리밍 API에서는 사용자용 오류로 전달한다.
+    검증기는 JSON Schema의 일부만 지원하므로 이 예외가 없다는 사실만으로
+    스키마의 모든 제약을 검증했다고 해석하지 않는다.
+    """
 
     pass
 
