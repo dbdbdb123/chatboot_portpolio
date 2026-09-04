@@ -25,6 +25,9 @@ class FakeOllama:
     def __init__(self) -> None:
         self.calls = 0
 
+    async def stream_chat(self, model, messages, tools=None):
+        yield await self.chat(model, messages, tools)
+
     async def chat(self, model: str, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         self.calls += 1
         if self.calls == 1:
@@ -36,7 +39,7 @@ class FakeOllama:
 
 @pytest.mark.asyncio
 async def test_executes_tool_and_returns_final_answer() -> None:
-    service = ChatService(FakeOllama(), FakeMCP(), "qwen3:0.6b", 3)  # type: ignore[arg-type]
+    service = ChatService(FakeOllama(), FakeMCP(), "qwen3.5:2b-q4_K_M", 3)  # type: ignore[arg-type]
     result = await service.run([ChatMessage(role="user", content="인증 문서 찾아줘")], True, None)
     assert result.message.content == "README에서 찾았습니다."
     assert result.tools[0].name == "search"

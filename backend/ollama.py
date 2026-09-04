@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from typing import Any
+from collections.abc import AsyncIterator
+import json
 
 import httpx
 
@@ -37,3 +39,24 @@ class OllamaClient:
 
     async def close(self) -> None:
         await self._client.aclose()
+
+    async def stream_chat(
+        self, model: str, messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        payload: dict[str, Any] = {"model": model, "messages": messages, "stream": True}
+        if tools:
+            payload["tools"] = tools
+        async with self._client.stream("POST", "/api/chat", json=payload) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if not line.strip():
+                    continue
+                chunk = json.loads(line)
+                if chunk.get("error"):
+                    raise RuntimeError("Ollama stream failed")
+                if chunk.get("message"):
+                    yield chunk["message"]
+                if chunk.get("done"):
+                    return
+        raise RuntimeError("Ollama stream ended before completion")

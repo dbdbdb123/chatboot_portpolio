@@ -7,6 +7,26 @@ const welcome = document.querySelector('#welcome');
 const toolToggle = document.querySelector('#toolToggle');
 const toast = document.querySelector('#toast');
 const sendButton = document.querySelector('#sendButton');
+const modelBadge = document.querySelector('#modelBadge');
+
+function showModel(model) {
+  if (typeof model !== 'string' || !model.trim()) return;
+  modelBadge.textContent = model;
+}
+
+async function loadModel() {
+  try {
+    const response = await fetch('/api/health', { cache: 'no-store' });
+    if (!response.ok) throw new Error('모델 조회 실패');
+    const data = await response.json();
+    if (typeof data.model !== 'string' || !data.model.trim()) throw new Error('모델 정보 없음');
+    showModel(data.model);
+  } catch {
+    modelBadge.textContent = '모델 확인 불가';
+  }
+}
+
+loadModel();
 
 // 현재 탭의 대화 기록이다. 서버가 무상태이므로 매 요청에 전체 기록을 함께 보낸다.
 let chatMessages = [];
@@ -39,7 +59,9 @@ function addMessage(text, role) {
 
   const bubble = document.createElement('div');
   bubble.className = 'bubble';
-  bubble.textContent = text;
+  const body = document.createElement('span');
+  body.textContent = text;
+  bubble.appendChild(body);
 
   const meta = document.createElement('span');
   meta.className = 'message-meta';
@@ -48,6 +70,7 @@ function addMessage(text, role) {
   article.appendChild(bubble);
   conversation.appendChild(article);
   article.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  return { article, body, meta };
 }
 
 function addToolActivity(activity) {
@@ -84,10 +107,59 @@ function autoResize() {
   input.style.height = `${Math.min(input.scrollHeight, 130)}px`;
 }
 
+function addLoadingIndicator() {
+  const indicator = document.createElement('div');
+  indicator.className = 'message assistant-message loading-message';
+  indicator.setAttribute('role', 'status');
+  const wheel = document.createElement('span');
+  wheel.className = 'loading-wheel';
+  wheel.setAttribute('aria-hidden', 'true');
+  const label = document.createElement('span');
+  label.textContent = '응답을 기다리고 있어요…';
+  indicator.append(wheel, label);
+  conversation.appendChild(indicator);
+  indicator.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  return indicator;
+}
+
+async function readChatStream(response, onEvent) {
+  if (!response.body) throw new Error('스트리밍 응답을 읽을 수 없습니다.');
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let completed = false;
+  try {
+    while (!completed) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      let boundary;
+      while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+        const frame = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        const lines = frame.split('\n');
+        const type = lines.find(line => line.startsWith('event:'))?.slice(6).trim();
+        const data = lines.filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
+        if (!data) continue; // keep-alive comment
+        const payload = JSON.parse(data);
+        if (type === 'error') throw new Error(payload.detail);
+        onEvent(type, payload);
+        if (type === 'done') {
+          completed = true;
+          break;
+        }
+      }
+      if (done && !completed) throw new Error('응답 연결이 중단되었습니다. 다시 시도해 주세요.');
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+}
+
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   const text = input.value.trim();
-  if (!text) return;
+  if (!text || sendButton.disabled) return;
 
   welcome.hidden = true;
   addMessage(text, 'user');
@@ -95,24 +167,59 @@ form.addEventListener('submit', async (event) => {
   input.value = '';
   autoResize();
   sendButton.disabled = true;
+  const loadingIndicator = addLoadingIndicator();
+  let currentMessage = null;
   try {
     // UI와 API가 같은 FastAPI 앱에서 제공되므로 상대 경로를 사용한다.
-    const response = await fetch('/api/chat', {
+    const response = await fetch('/api/chat/stream', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
       body: JSON.stringify({
         messages: chatMessages,
         use_tools: toolToggle.getAttribute('aria-pressed') === 'true',
       }),
     });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || '요청에 실패했습니다.');
-    data.tools.forEach(addToolActivity);
-    addMessage(data.message.content, 'assistant');
-    chatMessages.push(data.message);
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.detail || '요청에 실패했습니다.');
+    }
+    await readChatStream(response, (type, data) => {
+      if (type === 'model') showModel(data.model);
+      if (type === 'round') {
+        currentMessage = null;
+        conversation.appendChild(loadingIndicator);
+        loadingIndicator.hidden = false;
+        loadingIndicator.lastChild.textContent = '응답을 기다리고 있어요…';
+      }
+      if (type === 'delta') {
+        if (!currentMessage) {
+          currentMessage = addMessage('', 'assistant');
+          currentMessage.meta.textContent = '작성 중…';
+          conversation.appendChild(loadingIndicator);
+          loadingIndicator.lastChild.textContent = '응답을 작성하고 있어요…';
+        }
+        currentMessage.body.appendChild(document.createTextNode(data.text));
+        loadingIndicator.scrollIntoView({ block: 'end' });
+      }
+      if (type === 'tool') {
+        if (currentMessage) currentMessage.meta.textContent = now();
+        addToolActivity(data);
+        conversation.appendChild(loadingIndicator);
+      }
+      if (type === 'done') {
+        showModel(data.model);
+        if (!currentMessage) currentMessage = addMessage(data.message.content, 'assistant');
+        currentMessage.meta.textContent = now();
+        chatMessages.push(data.message);
+      }
+    });
   } catch (error) {
+    if (currentMessage) currentMessage.meta.textContent = '응답 중단';
+    chatMessages.pop(); // 실패한 요청은 다음 대화 기록에 포함하지 않는다.
+    loadingIndicator.remove();
     addMessage(`연결 오류: ${error.message}`, 'assistant');
   } finally {
+    loadingIndicator.remove();
     sendButton.disabled = false;
     input.focus();
   }
@@ -133,7 +240,11 @@ toolToggle.addEventListener('click', () => {
   showToast(enabled ? '도구 사용이 켜졌습니다.' : '도구 사용이 꺼졌습니다.');
 });
 
-document.querySelector('#newChat').addEventListener('click', () => {
+document.querySelector('#newChat')?.addEventListener('click', () => {
+  if (sendButton.disabled) {
+    showToast('응답이 끝난 뒤 새 대화를 시작해 주세요.');
+    return;
+  }
   conversation.replaceChildren();
   chatMessages = [];
   welcome.hidden = false;

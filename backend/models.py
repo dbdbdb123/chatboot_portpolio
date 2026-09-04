@@ -40,3 +40,4 @@ class HealthResponse(BaseModel):
     status: Literal["ok", "degraded"]
     ollama: bool
     mcp_servers: int
+    model: str

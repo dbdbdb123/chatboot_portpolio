@@ -1,7 +1,7 @@
 {
   "app_name": "Mori",
   "ollama_base_url": "http://127.0.0.1:11434",
-  "ollama_model": "qwen3:0.6b",
+  "ollama_model": "qwen3.5:2b-q4_K_M",
   "request_timeout_seconds": 60,
   "max_tool_rounds": 3,
   "mcp_servers": []

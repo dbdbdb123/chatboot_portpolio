@@ -118,6 +118,12 @@ button { color: inherit; }
 .welcome p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.75; }
 .conversation { padding-top: 14px; }
 .message { display: flex; margin: 0 0 10px; }
+.loading-message { align-items: center; gap: 10px; padding: 14px 16px; color: #667085; font-size: 14px; }
+.loading-wheel { display: inline-block; flex: 0 0 auto; width: 18px; height: 18px; border: 2px solid #dce9e4; border-top-color: var(--green); border-radius: 50%; animation: loading-spin .8s linear infinite; }
+@keyframes loading-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .loading-wheel { animation: none; }
+}
 .user-message { justify-content: flex-end; }
 .assistant-message { align-items: flex-start; gap: 12px; }
 .avatar { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; margin-top: 4px; border-radius: 50%; color: #4bd9b6; background: var(--navy); }
