@@ -1,0 +1,10 @@
+[
+  {
+    "question": "안녕! 한 문장으로 자기소개해줘.",
+    "answer": "안녕하세요, 저는 인공지능 어시스턴트입니다. 제가 무엇을 도와드릴까요?"
+  },
+  {
+    "question": "Hello! Introduce yourself in one sentence.",
+    "answer": "Of course! I am a large language model trained by Google that can answer questions and help with tasks like calculations or searching knowledge. How can I assist you?"
+  }
+]

@@ -1,6 +1,5 @@
 """LangChain 프롬프트에 시스템 지침과 현재 대화 이력을 결합한다."""
 
-from datetime import UTC, datetime
 from typing import Any
 
 from langchain_core.messages import ChatMessage as LangChainMessage
@@ -25,7 +24,6 @@ def build_history(
     """
     prompt = CHAT_PROMPT.invoke(
         {
-            "current_time": datetime.now(UTC).isoformat(),
             "request_guidance": build_request_guidance(tools, image is not None),
             "history": [
                 LangChainMessage(role=message.role.value, content=message.content)

@@ -42,7 +42,7 @@ MCP 서버 이름 `internal`은 내부 도구용으로 예약되어 있습니다
 
 ## LangChain 대화 문맥
 
-`backend/prompts/chat.py`에서 시스템 지침을 역할·대화·근거/도구·시간·사용 가능 기능으로 관리합니다.
+`backend/prompts/chat.py`에서 시스템 지침을 역할·지시·맥락·형식의 네 항목으로 관리합니다.
 도구별 안내는 실제 노출된 qualified_name 기준으로 추가하며 OCR 안내는 첨부·도구 상태에 따라 달라집니다.
 `backend/services/context.py`에서 LangChain Core의 `ChatPromptTemplate`과
 `MessagesPlaceholder`로 시스템 프롬프트와 이전 대화를 결합합니다.

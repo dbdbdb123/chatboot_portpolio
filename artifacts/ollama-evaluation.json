@@ -1,0 +1,167 @@
+{
+  "started_at": "2026-09-15T01:28:33.532993+00:00",
+  "url": "http://127.0.0.1:8000",
+  "method": "Sequential, one sample per case, think=false. First case includes cold-start if unloaded. Keyword checks are not full semantic grading.",
+  "results": [
+    {
+      "id": "greeting",
+      "question": "안녕! 한 문장으로 자기소개해줘.",
+      "first_text_seconds": 25.041,
+      "tool_events": [],
+      "answer": "안녕하세요! 저는 **Mori**예요. \n\nI am Mori, ready to help you with any questions or tasks. How can I assist you today?",
+      "done": true,
+      "error": null,
+      "total_seconds": 27.866,
+      "tool_selection_pass": true,
+      "answer_check_pass": true,
+      "passed": true
+    },
+    {
+      "id": "calculate",
+      "question": "1250000원에서 15% 할인한 가격을 계산해줘.",
+      "first_text_seconds": 6.556,
+      "tool_events": [],
+      "answer": "<think>\n\n</think>\n\n사용자가 요청하신 대로 1,250,000 원에서 15% 할인을 적용하여 계산합니다.\n\n계산식은 다음과 같습니다:\n$$1,250,000 \\times (1 - 15/100) = 1,250,000 \\times 0.85$$\n\n이를 계산하면 다음과 같습니다:\n\n```\n1250000 / 100 * (1 - 15/100) = 1250000 * 0.85\n```\n\n**계산 결과:**\n1,250,000 원에서 15% 할인된 가격은 **1,062,500 원**입니다.\n\n(검토: $1,250,000 \\times 0.85 = 1,062,500$)",
+      "done": true,
+      "error": null,
+      "total_seconds": 28.407,
+      "tool_selection_pass": false,
+      "answer_check_pass": true,
+      "passed": false
+    },
+    {
+      "id": "datetime",
+      "question": "한국은 지금 몇 월 며칠 무슨 요일이야? 시간도 알려줘.",
+      "first_text_seconds": 14.045,
+      "tool_events": [
+        {
+          "server": "internal",
+          "name": "get_current_datetime",
+          "arguments": {
+            "timezone": "Asia/Seoul"
+          },
+          "is_error": false,
+          "elapsed_seconds": 11.959
+        }
+      ],
+      "answer": "2026 년 9 월 15 일,요일이 화요일입니다. 오늘 시간도 오전 10시 29분 42 초이며, 서울 시시간을 기준으로 계산했기 때문에 현재 시간은 한국 시간입니다.",
+      "done": true,
+      "error": null,
+      "total_seconds": 18.627,
+      "tool_selection_pass": true,
+      "answer_check_pass": null,
+      "passed": true
+    },
+    {
+      "id": "memory",
+      "question": "내 이름과 좋아하는 언어가 뭐였지?",
+      "first_text_seconds": 6.464,
+      "tool_events": [],
+      "answer": "죄송합니다만 저는 이전의 대화 내용이나 기록에 관한 정보를 얻기 위해 **내부__search_conversation** 도구를 사용하여 과거 conversation 을 확인한 뒤 답변할 수 없었습니다. 이 요청에는 제공된 컨텍스트와 관련이 없습니다.",
+      "done": true,
+      "error": null,
+      "total_seconds": 10.299,
+      "tool_selection_pass": true,
+      "answer_check_pass": false,
+      "passed": false
+    },
+    {
+      "id": "conversation_search",
+      "question": "이전 대화를 검색해서 내가 말한 서버 메모리 용량을 찾아줘.",
+      "first_text_seconds": 10.551,
+      "tool_events": [
+        {
+          "server": "internal",
+          "name": "search_conversation",
+          "arguments": {
+            "query": "서버 메모리 3.7 GiB"
+          },
+          "is_error": false,
+          "elapsed_seconds": 9.415
+        }
+      ],
+      "answer": "내가 말씀한 서버 메모리 용량은 **3.7 GiB**였습니다.",
+      "done": true,
+      "error": null,
+      "total_seconds": 11.774,
+      "tool_selection_pass": true,
+      "answer_check_pass": true,
+      "passed": true
+    },
+    {
+      "id": "knowledge",
+      "question": "프로젝트 문서에서 Ollama 실행 방법을 검색하고 해당 문서를 읽어서 명령어와 출처를 알려줘.",
+      "first_text_seconds": 20.117,
+      "tool_events": [
+        {
+          "server": "internal",
+          "name": "search_knowledge",
+          "arguments": {
+            "query": "Ollama"
+          },
+          "is_error": false,
+          "elapsed_seconds": 8.429
+        },
+        {
+          "server": "internal",
+          "name": "read_knowledge",
+          "arguments": {
+            "document_id": "README.md",
+            "start_line": 50,
+            "line_count": 10
+          },
+          "is_error": false,
+          "elapsed_seconds": 16.276
+        }
+      ],
+      "answer": "프로젝트 문서 (README.md) 를 검색하고 읽은 결과로 Ollama 실행 방법과 출처는 다음과 같습니다.\n\n## Ollama 실행 명령어 및 출처\n\n**문서:** README.md  \n**줄:** 83-91\n\nOllama 가 설치된 환경에서 모델을 다운로드하여 실행하려면 아래 명령어를 사용합니다:\n```\nollama run <모델명>\n```\n\n구체적인 예:\n- `ollama run qwen3.5:2b-q4_K_M`\n\n이 문서는 **README.md** 의 라인 83 에서부터 91 까지이며, Ollama 로 모델 실행 방법을 안내합니다.",
+      "done": true,
+      "error": null,
+      "total_seconds": 36.142,
+      "tool_selection_pass": true,
+      "answer_check_pass": true,
+      "passed": true
+    },
+    {
+      "id": "disabled",
+      "question": "0.1+0.2는? 짧게 답해줘.",
+      "first_text_seconds": 3.947,
+      "tool_events": [],
+      "answer": "**0.3** (약 99.9% 확률)\n\n---\n\n### 설명\n이 질문은 매우 간단한 소수 연산에 해당합니다:\n$0.1 + 0.2 = 0.3$ 입니다.\n\n*   **확실한 사실**: 수학적으로 정확한 합계는 **0.3**입니다.\n*   **기타 가능성 (일차)**: \"짧게 답해줘\"라는 지시에 따라 다른 해석 (예: 소수점 1 자리 내의 근사치)을 고려할 수 있으나, 이 질문은 명확한 정답을 요구합니다.\n\n### 결론\n질문에는 오해의 소지가 없습니다. 정확한 답변만요청했습니다.",
+      "done": true,
+      "error": null,
+      "total_seconds": 17.501,
+      "tool_selection_pass": true,
+      "answer_check_pass": true,
+      "passed": true
+    }
+  ],
+  "health": {
+    "status": "ok",
+    "ollama": true,
+    "mcp_servers": 0,
+    "model": "qwen3.5:2b-q4_K_M"
+  },
+  "summary": {
+    "completed": 7,
+    "cases": 7,
+    "automatic_passes": 5,
+    "mean_total_seconds": 21.517,
+    "median_total_seconds": 18.627,
+    "mean_first_text_seconds": 12.389,
+    "median_first_text_seconds": 10.551
+  },
+  "environment": {
+    "docker_cpus": 6,
+    "docker_memory_bytes": 7994466304,
+    "context_length": 2048,
+    "parallel": 1,
+    "model_id": "124a03c34777",
+    "app_image": "sha256:7e69874411c83c620e72c67b3e9e5b6363be90593b23f26dd99b9d5f3b62b4d2",
+    "memory_snapshot_after_run": {
+      "app": "79.23 MiB",
+      "ollama": "2.553 GiB"
+    },
+    "note": "Local Docker Desktop, not AWS EC2. Memory snapshot is not peak usage."
+  }
+}
