@@ -12,32 +12,60 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.api.routes import router
 from backend.constants.app import APP_NAME, APP_VERSION
-from backend.constants.paths import UI_DIRECTORY
+from backend.constants.paths import PROJECT_ROOT, UI_DIRECTORY
 from backend.dataclass.settings import Settings
 from backend.mcp.stdio_gateway import ConfiguredMCPGateway
 from backend.ollama import OllamaClient
 from backend.services.chat import ChatService
 from backend.services.tool_policy import OCRToolPolicy
 from backend.services.tools import ToolExecutor
+from backend.tools.calculator import CalculatorTool
+from backend.tools.composite import CompositeToolClient
+from backend.tools.datetime_tool import CurrentDateTimeTool
+from backend.tools.registry import INTERNAL_SERVER, InternalToolRegistry
+from backend.tools.conversation import SearchConversationTool
+from backend.tools.knowledge import DocumentStore, ReadKnowledgeTool, SearchKnowledgeTool
+from backend.schemas import ChatMessage
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """프로세스당 한 번 공유 클라이언트를 생성하고 종료 시 정리한다."""
     settings = Settings.load()
+    if any(server.name == INTERNAL_SERVER for server in settings.mcp_servers):
+        raise ValueError("MCP server name 'internal' is reserved for built-in tools")
+    knowledge = DocumentStore.from_files(PROJECT_ROOT, ["README.md", "docs/DEVELOPMENT.md"])
     ollama = OllamaClient(settings.ollama_base_url, settings.request_timeout_seconds)
     mcp = ConfiguredMCPGateway(settings.mcp_servers)
     app.state.settings = settings
     app.state.ollama = ollama
     app.state.mcp = mcp
     tool_policy = OCRToolPolicy()
+    shared_tools = [CurrentDateTimeTool(), CalculatorTool(),
+                    SearchKnowledgeTool(knowledge), ReadKnowledgeTool(knowledge)]
+    tools = CompositeToolClient(
+        {INTERNAL_SERVER: InternalToolRegistry([*shared_tools, SearchConversationTool([])])},
+        fallback=mcp,
+    )
+
+    def request_runner(messages: list[ChatMessage]) -> ToolExecutor:
+        # 마지막 사용자 질문은 검색 대상에서 제외하고 앞선 대화만 복사한다.
+        previous = messages[:-1] if messages and messages[-1].role == "user" else messages
+        client = CompositeToolClient(
+            {INTERNAL_SERVER: InternalToolRegistry([
+                *shared_tools, SearchConversationTool(previous),
+            ])}, fallback=mcp,
+        )
+        return ToolExecutor(client, tool_policy)
+
     app.state.chat_service = ChatService(
         ollama,
-        mcp,
+        tools,
         settings.ollama_model,
         settings.max_tool_rounds,
-        tool_executor=ToolExecutor(mcp, tool_policy),
+        tool_executor=ToolExecutor(tools, tool_policy),
         tool_policy=tool_policy,
+        tool_runner_factory=request_runner,
     )
     try:
         yield

@@ -2,6 +2,8 @@
 
 from backend.schemas import ChatMessage
 from backend.services.context import build_history
+from backend.dataclass.mcp import MCPTool
+from backend.prompts.chat import build_request_guidance
 
 
 def test_plain_chat_keeps_system_prompt_and_previous_turns():
@@ -33,3 +35,29 @@ def test_existing_system_and_tool_roles_are_preserved():
         ChatMessage(role="user", content="요약해줘"),
     ]
     assert build_history(messages, [], None)[1:] == [m.model_dump() for m in messages]
+
+
+def test_disabled_tools_do_not_advertise_internal_capabilities():
+    guidance = build_request_guidance([], False)
+    assert "No tools are available" in guidance
+    assert "internal__" not in guidance
+    assert "No image is attached" in guidance
+
+
+def test_instructions_follow_qualified_tool_names():
+    tools = [MCPTool("internal", "calculate", "", {}),
+             MCPTool("external", "search_conversation", "", {})]
+    guidance = build_request_guidance(tools, False)
+    assert "internal__calculate: Use for arithmetic" in guidance
+    assert "Search earlier user/assistant" not in guidance
+    assert "internal__read_knowledge" not in guidance
+
+
+def test_image_guidance_distinguishes_ocr_availability():
+    no_ocr = build_request_guidance([], True)
+    assert "An image is attached" in no_ocr
+    assert "No OCR tool is available" in no_ocr
+    with_ocr = build_request_guidance([MCPTool("ocr", "inspect_document", "", {})], True)
+    assert "use ocr__inspect_document" in with_ocr
+    assert "Do not call OCR merely" in with_ocr
+    assert "No OCR tool is available" not in with_ocr

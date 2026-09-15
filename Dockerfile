@@ -15,6 +15,7 @@ RUN pip install --no-cache-dir .
 
 COPY main.py ./main.py
 COPY chatbot-ui ./chatbot-ui
+COPY docs/DEVELOPMENT.md ./docs/DEVELOPMENT.md
 COPY .setting ./.setting
 
 # 애플리케이션은 권한이 제한된 사용자로 실행한다.

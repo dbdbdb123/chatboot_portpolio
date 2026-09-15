@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from contextlib import aclosing
 from typing import Any
 
@@ -36,6 +36,7 @@ class ChatService:
         *,
         tool_executor: ToolRunner,
         tool_policy: ToolPolicy,
+        tool_runner_factory: Callable[[list[ChatMessage]], ToolRunner] | None = None,
     ) -> None:
         """앱 조립부가 구성한 모델·도구 조회·실행기·정책을 보관한다.
 
@@ -50,6 +51,7 @@ class ChatService:
         self._tool_policy = tool_policy
         self._default_model = default_model
         self._max_tool_rounds = max_tool_rounds
+        self._tool_runner_factory = tool_runner_factory
 
     async def run(
         self,
@@ -90,6 +92,7 @@ class ChatService:
         소비자 종료 시 모델 생성기를 닫고 정책·모델·실행 오류는 전송 계층에 전달한다.
         """
         selected_model = model or self._default_model
+        runner = self._tool_runner_factory(messages) if self._tool_runner_factory else self._tool_executor
         yield {"event": StreamEvent.MODEL, "data": {"model": selected_model}}
         tools = await self._mcp.list_tools() if use_tools else []
         tools = self._tool_policy.prepare_tools(tools, image)
@@ -135,7 +138,7 @@ class ChatService:
                 raise RuntimeError("maximum tool rounds exceeded")
             history.append(assistant)
             for call in calls:
-                execution = await self._tool_executor.execute(call, tool_index, image)
+                execution = await runner.execute(call, tool_index, image)
                 activities.append(execution.activity)
                 yield {"event": StreamEvent.TOOL, "data": execution.activity.model_dump()}
                 history.append(execution.message)

@@ -9,6 +9,7 @@ dependencies = [
     "langchain-core>=1,<2",
     "mcp>=2,<3",
     "Pillow>=12,<13",
+    "tzdata>=2026.4",
     "uvicorn[standard]>=0.35,<1",
 ]
 

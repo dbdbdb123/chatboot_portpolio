@@ -4,8 +4,46 @@
 
 개발·유지보수 절차와 SOLID 책임 분리·정책 주입·확장 기준은 [개발 문서](docs/DEVELOPMENT.md)에 정리했습니다. [Notion 개발 문서](https://app.notion.com/p/3d10800670e98163b9fac85fedcdc5de)에서도 확인할 수 있습니다.
 
+## 기본 내부 도구
+
+도구 사용을 켜면 MCP 도구와 함께 다음 내부 도구를 사용할 수 있습니다.
+
+| 도구 | 입력 | 기능 |
+| --- | --- | --- |
+| `internal__get_current_datetime` | `timezone` (기본 `Asia/Seoul`) | IANA 시간대의 현재 날짜·시각·요일 조회 |
+| `internal__calculate` | `expression` | 소수·괄호·`+ - * /` 계산, 유효숫자 28자리 |
+| `internal__search_conversation` | `query`, `limit` (기본 5) | 현재 요청의 이전 사용자·assistant 대화 검색, 최신순 |
+| `internal__search_knowledge` | `query`, `limit` (기본 5) | 등록 문서에서 키워드 검색, 문서 ID·줄 번호 반환 |
+| `internal__read_knowledge` | `document_id`, `start_line`, `line_count` | 등록 문서 구간 읽기, 기본 40줄·최대 100줄/12,000자 |
+
+예: “뉴욕은 지금 몇 시야?”, “125만 원에서 15% 할인한 가격 계산해줘”.
+계산식은 `1250000*(1-15/100)`처럼 전달하며 함수·거듭제곱·단위 변환은 지원하지 않습니다.
+결과 숫자는 소수 정밀도를 보존하기 위해 문자열로 반환합니다.
+도구 OFF는 내부 도구와 MCP 도구 모두에 적용됩니다. `/api/mcp/tools`는 기존대로 MCP 목록만 반환합니다.
+
+내부 도구는 `backend/tools/`에 구현하고 입력 Pydantic 스키마는
+`backend/schemas/internal_tools.py`에 둡니다. `InternalToolRegistry`는 등록·실행을,
+`CompositeToolClient`는 제공자 선택을 담당합니다. 새 도구는 `InternalTool` 계약을 구현한 뒤
+`backend/app.py`의 등록 목록에 추가합니다. `ChatService`의 도구별 분기는 필요하지 않습니다.
+MCP 서버 이름 `internal`은 내부 도구용으로 예약되어 있습니다.
+
+문서는 앱 시작 시 `README.md`, `docs/DEVELOPMENT.md`를 읽어 스냅샷으로 등록합니다.
+추가 문서는 앱 조립부의 명시적 파일 목록에 등록하고 서버를 재시작합니다.
+등록 파일은 프로젝트 내부 UTF-8 `.md`/`.txt`, 파일당 최대 1 MB입니다.
+파일 경로를 모델이 임의로 지정해 읽을 수 없으며 검색 결과의 문서 ID로만 조회합니다.
+검색은 대소문자를 무시하는 키워드 검색입니다. 문서에서는 같은 줄에 모든 검색어가
+포함되어야 하며 의미 기반 검색이나 벡터 DB는 사용하지 않습니다.
+문서 읽기는 `next_line`으로 다음 구간을 요청할 수 있습니다.
+단일 줄이 12,000자를 넘으면 해당 줄은 잘리고 `truncated: true`로 표시됩니다.
+
+대화 검색은 요청별 실행기에 이전 메시지의 복사본을 주입하며 현재 사용자 질문은 제외합니다.
+다른 요청·세션, 시스템 메시지, 전송되지 않은 과거 대화는 검색하지 않습니다.
+예: “아까 서버 사양 뭐라고 했지?”, “문서에서 실행 방법 찾아줘”.
+
 ## LangChain 대화 문맥
 
+`backend/prompts/chat.py`에서 시스템 지침을 역할·대화·근거/도구·시간·사용 가능 기능으로 관리합니다.
+도구별 안내는 실제 노출된 qualified_name 기준으로 추가하며 OCR 안내는 첨부·도구 상태에 따라 달라집니다.
 `backend/services/context.py`에서 LangChain Core의 `ChatPromptTemplate`과
 `MessagesPlaceholder`로 시스템 프롬프트와 이전 대화를 결합합니다.
 일반 채팅에도 Mori 시스템 지침을 항상 적용하며, 이전 사용자 정보·선호·정정 사항을

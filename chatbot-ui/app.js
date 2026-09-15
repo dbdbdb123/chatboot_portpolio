@@ -171,7 +171,9 @@ function addToolActivity(activity) {
   const title = document.createElement('strong');
   title.textContent = activity.name;
   const detail = document.createElement('small');
-  detail.textContent = `${activity.server} MCP 서버에서 실행`;
+  detail.textContent = activity.server === 'internal'
+    ? '기본 도구로 실행'
+    : `${activity.server} MCP 서버에서 실행`;
   label.append(title, detail);
   const status = document.createElement('span');
   status.className = 'tool-status';
