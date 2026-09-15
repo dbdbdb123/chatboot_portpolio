@@ -20,9 +20,11 @@ from backend.constants.environment import (
     ENV_MCP_SERVERS_JSON,
     ENV_OLLAMA_BASE_URL,
     ENV_OLLAMA_MODEL,
+    ENV_OLLAMA_OPTIONS_JSON,
     ENV_REQUEST_TIMEOUT_SECONDS,
 )
 from backend.constants.paths import SETTINGS_FILE
+from backend.schemas.generation import GenerationOptions
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +109,7 @@ class Settings:
     request_timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS
     max_tool_rounds: int = DEFAULT_MAX_TOOL_ROUNDS
     mcp_servers: tuple[MCPServerConfig, ...] = ()
+    generation: GenerationOptions = field(default_factory=GenerationOptions)
 
     @classmethod
     def load(cls, path: Path = SETTINGS_FILE) -> Self:
@@ -135,6 +138,16 @@ class Settings:
             if not isinstance(decoded, list):
                 raise ValueError("MCP_SERVERS_JSON must contain a JSON array")
             servers = tuple(MCPServerConfig.from_dict(item) for item in decoded)
+            generation_data = file_data.get("generation", {})
+            if not isinstance(generation_data, dict):
+                raise ValueError("generation must be an object")
+            generation_data = dict(generation_data)
+            if ENV_OLLAMA_OPTIONS_JSON in os.environ:
+                overrides = json.loads(os.environ[ENV_OLLAMA_OPTIONS_JSON])
+                if not isinstance(overrides, dict):
+                    raise ValueError(f"{ENV_OLLAMA_OPTIONS_JSON} must be an object")
+                generation_data.update(overrides)
+            generation = GenerationOptions.model_validate(generation_data)
         except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
             raise RuntimeError(f"Invalid application settings: {exc}") from exc
 
@@ -161,6 +174,7 @@ class Settings:
                 )
             ),
             mcp_servers=servers,
+            generation=generation,
         )
 
     @classmethod

@@ -62,6 +62,7 @@ docker compose ps
 - `REQUEST_TIMEOUT_SECONDS` / `request_timeout_seconds`: 기본 60초. HTTPX 요청의 연결·읽기 등 타임아웃이며 전체 채팅의 절대 실행 시간 제한은 아니다.
 - `MAX_TOOL_ROUNDS` / `max_tool_rounds`: 기본 3. 이후 최종 응답용 추론 기회를 한 번 더 갖는다.
 - `MCP_SERVERS_JSON` / `mcp_servers`: MCP 서버 배열. 환경변수는 전체 목록을 교체한다.
+- `OLLAMA_OPTIONS_JSON` / `generation`: Ollama 상세 생성 옵션(temperature, top_p, top_k, repeat_penalty, presence_penalty 등). 환경변수 JSON으로 세부 항목을 덮어쓸 수 있다.
 - MCP `timeout_seconds`: 기본 15초, AWS 연결은 서버별 30초. 초기화·작업·정리를 포함한 세션을 asyncio.timeout으로 감싼다.
 - Ollama 컨테이너 설정: context 2048, parallel 1, max loaded models 1.
 

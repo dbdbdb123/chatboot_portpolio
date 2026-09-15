@@ -4,5 +4,27 @@
   "ollama_model": "qwen3.5:2b-q4_K_M",
   "request_timeout_seconds": 60,
   "max_tool_rounds": 3,
-  "mcp_servers": []
+  "mcp_servers": [],
+  "generation": {
+    "temperature": 0.3,
+    "top_p": 0.9,
+    "top_k": 40,
+    "min_p": 0.0,
+    "typical_p": null,
+    "repeat_penalty": 1.1,
+    "repeat_last_n": 64,
+    "presence_penalty": 0.0,
+    "frequency_penalty": 0.0,
+    "mirostat": null,
+    "mirostat_tau": null,
+    "mirostat_eta": null,
+    "penalize_newline": null,
+    "seed": null,
+    "num_predict": 512,
+    "num_ctx": 2048,
+    "num_batch": null,
+    "num_keep": null,
+    "num_thread": null,
+    "stop": null
+  }
 }

@@ -8,6 +8,8 @@ from typing import Any
 
 import httpx
 
+from backend.schemas.generation import GenerationOptions
+
 
 class OllamaClient:
     """Ollama REST API와 NDJSON 스트리밍을 감싸는 비동기 HTTP 클라이언트.
@@ -19,7 +21,8 @@ class OllamaClient:
     클라이언트 연결 풀의 최종 close 호출은 앱 수명주기 관리자가 담당한다.
     """
 
-    def __init__(self, base_url: str, timeout_seconds: float) -> None:
+    def __init__(self, base_url: str, timeout_seconds: float,
+                 options: GenerationOptions | None = None) -> None:
         """Ollama 요청에 사용할 재사용 비동기 HTTP 클라이언트를 생성한다.
 
         base_url 끝의 슬래시를 정리하고 timeout_seconds를 HTTP 제한 시간으로 적용한다.
@@ -27,6 +30,12 @@ class OllamaClient:
         생성한 연결 풀은 이후 요청들이 공유하며 사용 종료 시 close로 정리해야 한다.
         """
         self._client = httpx.AsyncClient(base_url=base_url.rstrip("/"), timeout=timeout_seconds)
+        self._options = (options or GenerationOptions()).model_copy(deep=True)
+
+    @property
+    def options(self) -> GenerationOptions:
+        """클라이언트에 설정된 생성 파라미터 복사본을 반환한다."""
+        return self._options.model_copy(deep=True)
 
     async def is_available(self) -> bool:
         """Ollama의 모델 목록 API가 정상 HTTP 응답을 반환하는지 확인한다.
@@ -60,6 +69,7 @@ class OllamaClient:
             "messages": messages,
             "stream": False,
             "think": think,
+            "options": self._options.model_dump(exclude_none=True),
         }
         if tools:
             payload["tools"] = tools
@@ -96,6 +106,7 @@ class OllamaClient:
             "messages": messages,
             "stream": True,
             "think": think,
+            "options": self._options.model_dump(exclude_none=True),
         }
         if tools:
             payload["tools"] = tools

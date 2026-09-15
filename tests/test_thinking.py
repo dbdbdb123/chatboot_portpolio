@@ -41,6 +41,36 @@ async def test_thinking_reaches_ollama_in_both_modes(think):
         await client.close()
 
 
+@pytest.mark.asyncio
+async def test_ollama_client_sends_generation_options_to_api():
+    """OllamaClient가 GenerationOptions를 payload의 options 필드로 정확히 전달하는지 확인한다."""
+    from backend.schemas.generation import GenerationOptions
+
+    seen_options = []
+
+    def handle(request):
+        payload = json.loads(request.content)
+        seen_options.append(payload.get("options"))
+        if payload.get("stream"):
+            return httpx.Response(200, text='{"message":{"content":"OK"},"done":true}\n')
+        return httpx.Response(200, json={"message": {"content": "OK"}})
+
+    options = GenerationOptions(temperature=0.3, presence_penalty=0.0, top_k=40)
+    client = OllamaClient("http://test", 1, options=options)
+    await client.close()
+    client._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handle), base_url="http://test"
+    )
+    try:
+        await client.chat("test", [])
+        assert [chunk async for chunk in client.stream_chat("test", [])]
+        expected = {"temperature": 0.3, "presence_penalty": 0.0, "top_k": 40}
+        assert seen_options == [expected, expected]
+        assert client.options.temperature == 0.3
+    finally:
+        await client.close()
+
+
 @pytest.mark.parametrize("think", [False, True])
 @pytest.mark.parametrize("endpoint", ["/api/chat", "/api/chat/stream"])
 def test_thinking_survives_api_and_tool_rounds(think, endpoint):

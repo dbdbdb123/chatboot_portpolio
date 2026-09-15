@@ -35,7 +35,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if any(server.name == INTERNAL_SERVER for server in settings.mcp_servers):
         raise ValueError("MCP server name 'internal' is reserved for built-in tools")
     knowledge = DocumentStore.from_files(PROJECT_ROOT, ["README.md", "docs/DEVELOPMENT.md"])
-    ollama = OllamaClient(settings.ollama_base_url, settings.request_timeout_seconds)
+    ollama = OllamaClient(settings.ollama_base_url, settings.request_timeout_seconds,
+                          options=settings.generation)
     mcp = ConfiguredMCPGateway(settings.mcp_servers)
     app.state.settings = settings
     app.state.ollama = ollama
