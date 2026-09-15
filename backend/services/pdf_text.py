@@ -10,6 +10,29 @@ MAX_PDF_PAGES = 100
 MAX_EXTRACTED_BYTES = 200_000
 
 
+def normalize_page_text(text: str) -> str:
+    """PDF layout extraction의 과도한 공백과 단어 중간 줄바꿈을 정리한다."""
+    lines = [" ".join(line.strip().split()) for line in text.splitlines()]
+    normalized: list[str] = []
+    for line in lines:
+        if not line:
+            if normalized and normalized[-1]:
+                normalized.append("")
+            continue
+        if (
+            normalized
+            and normalized[-1]
+            and not normalized[-1].endswith((".", "!", "?", ":", ";", "。", "다.", "]"))
+            and not line.startswith(("-", "•", "[", "#"))
+            and (len(normalized[-1]) > 30 or len(normalized[-1]) == 1)
+        ):
+            separator = "" if len(normalized[-1]) == 1 else " "
+            normalized[-1] += separator + line
+        else:
+            normalized.append(line)
+    return "\n".join(normalized).strip()
+
+
 def extract_pdf(data: bytes) -> list[str]:
     if not data or len(data) > MAX_PDF_BYTES:
         raise ValueError("PDF는 10 MB 이하만 등록할 수 있습니다.")
@@ -24,7 +47,10 @@ def extract_pdf(data: bytes) -> list[str]:
         pages = []
         size = 0
         for page in reader.pages:
-            text = (page.extract_text() or "").strip()
+            # layout 모드는 이력서·표처럼 여러 열이 있는 PDF의 읽기 순서를 더 잘 보존한다.
+            text = normalize_page_text(
+                page.extract_text(extraction_mode="layout") or ""
+            ) if "/Contents" in page else ""
             size += len(text.encode("utf-8"))
             if size > MAX_EXTRACTED_BYTES:
                 raise ValueError("PDF의 추출 텍스트가 200 KB를 초과합니다. 파일을 나누어 등록해 주세요.")

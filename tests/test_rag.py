@@ -17,8 +17,8 @@ class Model:
     async def stream_chat(self, model, messages, tools, think):
         self.calls += 1
         assert tools is None
-        payload = json.loads(messages[-1]['content'])
-        assert payload['sources']
+        prompt = messages[-1]['content']
+        assert 'QUESTION:' in prompt and 'SOURCE [1]' in prompt
         assert 'untrusted' in messages[0]['content']
         yield {'content': '프로젝트 문의는 담당자에게 전달합니다. [1]'}
 
@@ -194,6 +194,24 @@ def test_chunks_are_bounded_and_keep_line_ranges():
     assert chunks[0]['start'] == 1
     assert chunks[-1]['end'] == 3
     assert all(1 <= chunk['start'] <= chunk['end'] <= 3 for chunk in chunks)
+
+
+@pytest.mark.asyncio
+async def test_resume_summary_uses_all_active_chunks_in_document_order(rag):
+    text = '\n'.join(f'경력 항목 {number}: OCR 프로젝트와 담당 업무 상세 설명' for number in range(100))
+    await rag.register('resume.txt', text)
+    hits = await rag.context('이력서 전체 경력을 요약해줘')
+    assert len(hits) > 3
+    assert [hit['ordinal'] for hit in hits] == sorted(hit['ordinal'] for hit in hits)
+    assert sum(len(hit['text']) for hit in hits) <= 9000
+
+
+def test_pdf_layout_text_is_normalized():
+    from backend.services.pdf_text import normalize_page_text
+    raw = 'OCR 경력을 보유하고 있습니다. 문서 전처리와 FastAPI 기반\nAPI 개발을 담당했습니다.\n\n\nL\ninux 서버 배포'
+    assert normalize_page_text(raw) == (
+        'OCR 경력을 보유하고 있습니다. 문서 전처리와 FastAPI 기반 API 개발을 담당했습니다.\n\nLinux 서버 배포'
+    )
 
 
 @pytest.mark.asyncio

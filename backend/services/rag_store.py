@@ -107,7 +107,7 @@ class RagStore:
                    'vector': chunk['vector'],
                    'payload': {'id': identifier, 'name': name, 'revision': revision,
                                'text': chunk['text'], 'start': chunk['start'], 'end': chunk['end'],
-                               'page': chunk.get('page'),
+                               'page': chunk.get('page'), 'ordinal': index,
                                'keywords': sorted(terms(chunk['text']))}}
                   for index, chunk in enumerate(chunks)]
         for offset in range(0, len(points), 32):
@@ -137,3 +137,20 @@ class RagStore:
             })['points']
         unique = {point['id']: point for point in points}
         return [{**point['payload'], 'semantic': cosine(vector, point['vector'])} for point in unique.values()]
+
+    def document_chunks(self, model, document_ids, limit=40):
+        """활성 문서 버전의 청크를 문서·페이지·순서대로 가져온다."""
+        manifests = [p for p in self.manifests() if p['payload']['model'] == model]
+        if not manifests:
+            return []
+        revisions = [point['payload']['revision'] for point in manifests]
+        result = self.request('POST', f'/collections/{self.chunks}/points/scroll', json={
+            'filter': {'must': [
+                {'key': 'revision', 'match': {'any': revisions}},
+                {'key': 'id', 'match': {'any': document_ids}},
+            ]},
+            'limit': limit, 'with_payload': True, 'with_vector': False,
+        })
+        chunks = [point['payload'] for point in result['points']]
+        chunks.sort(key=lambda item: (item['name'], item.get('page') or 0, item.get('ordinal', 0)))
+        return chunks

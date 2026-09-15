@@ -71,7 +71,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         tool_runner_factory=request_runner,
     )
     rag_model = OllamaClient(settings.ollama_base_url, settings.request_timeout_seconds,
-        options=settings.generation.model_copy(update={"num_ctx": 4096, "num_predict": 512}))
+        options=settings.generation.model_copy(update={"num_ctx": 8192, "num_predict": 768}))
     app.state.rag_service = RagService(
         RagStore(os.environ.get("QDRANT_URL", "http://127.0.0.1:6333"),
                  os.environ.get("QDRANT_API_KEY"), os.environ.get("RAG_COLLECTION", "mori")),
