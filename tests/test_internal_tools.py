@@ -45,8 +45,10 @@ async def test_timezones_and_date_rollover():
     result = (await tool.execute({})).structured_content
     assert result["datetime"] == "2026-09-16T03:30:00+09:00"
     assert result["weekday"] == "Wednesday"
+    assert result["weekday_ko"] == "수요일"
     utc = (await tool.execute({"timezone": "UTC"})).structured_content
     assert utc["date"] == "2026-09-15"
+    assert utc["weekday_ko"] == "화요일"
     ny = (await tool.execute({"timezone": "America/New_York"})).structured_content
     assert ny["datetime"] == "2026-09-15T14:30:00-04:00"
 

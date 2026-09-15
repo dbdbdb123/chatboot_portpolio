@@ -42,5 +42,6 @@ class CurrentDateTimeTool:
             "date": local.date().isoformat(),
             "time": local.timetz().isoformat(),
             "weekday": ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")[local.weekday()],
+            "weekday_ko": ("월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일")[local.weekday()],
             "iso_weekday": local.isoweekday(),
         })
