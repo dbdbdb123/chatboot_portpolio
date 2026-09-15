@@ -36,7 +36,7 @@ Return only the user-facing answer; do not include internal reasoning or <think>
 
 # 키는 모델에 노출되는 실제 qualified_name이다. 동명 외부 도구에는 적용하지 않는다.
 TOOL_INSTRUCTIONS = {
-    "internal__get_current_datetime": "Use whenever the current date or time is needed, including weekday questions and relative dates. Pass the user's specified timezone; otherwise omit timezone to use the tool's default.",
+    "internal__get_current_datetime": "Use whenever the current date or time is needed, including weekday questions and relative dates. For Korean questions, refer to 'weekday_ko'. Pass the user's specified timezone; otherwise omit timezone to use the tool's default.",
     "internal__calculate": "Use for arithmetic. Convert percentages to /100; do not assume unit conversion support.",
     "internal__search_conversation": "Search earlier user/assistant messages in this request when needed. Other sessions are unavailable.",
     "internal__search_knowledge": "Search registered project documentation by keywords. No matches means no supporting source was found.",
