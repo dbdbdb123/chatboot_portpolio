@@ -4,10 +4,18 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class DateTimeArguments(BaseModel):
-    """IANA 시간대 이름을 받는다."""
+    """현재 또는 지정한 ISO 날짜·시각과 달력 날짜 이동을 받는다."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
     timezone: str = Field(default="Asia/Seoul", min_length=1, max_length=100)
+    value: str | None = Field(
+        default=None, min_length=1, max_length=100,
+        description="ISO date or datetime; omitted means now. Without an offset, interpreted in timezone.",
+    )
+    offset_days: int = Field(
+        default=0, ge=-365000, le=365000,
+        description="Calendar days to add in the target timezone; negative for earlier dates.",
+    )
 
 
 class CalculateArguments(BaseModel):

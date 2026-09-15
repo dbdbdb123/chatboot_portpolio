@@ -4,13 +4,16 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator, Callable
 from contextlib import aclosing
+import json
 from typing import Any
 
 from backend.constants.enums import MessageRole, StreamEvent
+from backend.prompts.chat import CALCULATION_REVIEW_PROMPT
 from backend.schemas.images import ImageAttachment
 from backend.mcp.interface import MCPToolCatalog
 from backend.schemas import ChatMessage, ChatResponse, ToolActivity
 from backend.services.context import build_history
+from backend.services.date_validation import is_date_conversation, resolve_date_followup, validate_date_answer
 from backend.services.interfaces import ChatModel
 from backend.services.tool_policy import ToolPolicy
 from backend.services.tools import ToolRunner
@@ -88,6 +91,9 @@ class ChatService:
         use_tools가 False이면 조회를 생략하고 think는 모든 모델 라운드에 전달한다.
         모델이 호출한 도구 결과를 요청 내부 이력에 추가해 후속 추론에 사용하며,
         thinking은 누적하되 답변 조각 이벤트로 보내지 않는다.
+        내부 계산 도구 실행 이후의 초안은 보류하고, 최종 답변을 도구 없는 추가 호출로
+        한 번 검토한 뒤 전달한다. 이 검토는 도구 실행 라운드 제한과 별개다.
+        날짜 문맥의 답변은 버퍼링하고 명시적인 날짜·요일 단정을 달력으로 검산한다.
         마지막 허용 추론에서도 도구를 요청하면 RuntimeError를 발생시킨다.
         소비자 종료 시 모델 생성기를 닫고 정책·모델·실행 오류는 전송 계층에 전달한다.
         """
@@ -99,6 +105,39 @@ class ChatService:
         history = build_history(messages, tools, image)
         activities: list[ToolActivity] = []
         tool_index = {tool.qualified_name: tool for tool in tools}
+        followup = resolve_date_followup(messages) if image is None else None
+        if followup is not None:
+            answer = followup.clarification
+            if followup.value or followup.offset_days is not None:
+                if "internal__get_datetime" not in tool_index:
+                    answer = "날짜와 요일을 조회하려면 도구 사용을 켜 주세요."
+                else:
+                    execution = await runner.execute({"function": {
+                        "name": "internal__get_datetime",
+                        "arguments": ({"value": followup.value} if followup.value else
+                                      {"offset_days": followup.offset_days}),
+                    }}, tool_index, image)
+                    activities.append(execution.activity)
+                    yield {"event": StreamEvent.TOOL, "data": execution.activity.model_dump()}
+                    if execution.activity.is_error:
+                        answer = "날짜 조회에 실패했습니다. 잠시 후 다시 시도해 주세요."
+                    else:
+                        payload = json.loads(execution.message["content"])
+                        if followup.value and payload.get("date") != followup.value:
+                            raise RuntimeError("date lookup returned a different date")
+                        year, month, day = map(int, payload["date"].split("-"))
+                        answer = validate_date_answer(
+                            f"{year}년 {month}월 {day}일은 {payload['weekday_ko']}입니다."
+                        )
+            yield {"event": StreamEvent.DELTA, "data": {"text": answer}}
+            result = ChatResponse(
+                message=ChatMessage(role=MessageRole.ASSISTANT, content=answer),
+                model=selected_model, tools=activities,
+            )
+            yield {"event": StreamEvent.DONE, "data": result.model_dump()}
+            return
+        calculation_used = False
+        check_dates = is_date_conversation(messages)
         # 마지막 1회는 도구 결과를 읽은 모델이 최종 답변을 만들 기회다.
         for round_index in range(self._max_tool_rounds + 1):
             yield {"event": StreamEvent.ROUND, "data": {"index": round_index}}
@@ -121,10 +160,32 @@ class ChatService:
                     assistant["content"] += content
                     assistant["thinking"] += chunk.get("thinking") or ""
                     assistant["tool_calls"].extend(chunk.get("tool_calls") or [])
-                    if content:
+                    if content and not calculation_used and not check_dates:
                         yield {"event": StreamEvent.DELTA, "data": {"text": content}}
             calls = assistant.get("tool_calls") or []
             if not calls:
+                if calculation_used:
+                    # 계산 답변 초안은 공개 전에 별도 모델 호출로 한 번만 검토한다.
+                    review_history = [
+                        *history,
+                        assistant,
+                        {"role": MessageRole.SYSTEM, "content": CALCULATION_REVIEW_PROMPT},
+                    ]
+                    reviewed = ""
+                    async with aclosing(self._ollama.stream_chat(
+                        selected_model, review_history, None, think,
+                    )) as chunks:
+                        async for chunk in chunks:
+                            if chunk.get("tool_calls"):
+                                raise RuntimeError("calculation review requested unavailable tools")
+                            reviewed += chunk.get("content") or ""
+                    if not reviewed.strip():
+                        raise RuntimeError("calculation review returned an empty answer")
+                    assistant["content"] = reviewed
+                if check_dates:
+                    assistant["content"] = validate_date_answer(assistant["content"])
+                if calculation_used or check_dates:
+                    yield {"event": StreamEvent.DELTA, "data": {"text": assistant["content"]}}
                 result = ChatResponse(
                     message=ChatMessage(
                         role=MessageRole.ASSISTANT, content=str(assistant.get("content", ""))
@@ -142,4 +203,6 @@ class ChatService:
                 activities.append(execution.activity)
                 yield {"event": StreamEvent.TOOL, "data": execution.activity.model_dump()}
                 history.append(execution.message)
+                if call.get("function", {}).get("name") == "internal__calculate":
+                    calculation_used = True
         raise RuntimeError("maximum tool rounds exceeded")

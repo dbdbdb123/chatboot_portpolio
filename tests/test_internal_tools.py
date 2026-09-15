@@ -4,13 +4,13 @@ from decimal import Decimal
 import pytest
 
 from backend.dataclass.mcp import MCPTool, MCPToolResult
-from backend.schemas import ChatMessage
+from backend.schemas import ChatMessage, ChatResponse
 from backend.services.chat import ChatService
 from backend.services.tool_policy import OCRToolPolicy
 from backend.services.tools import ToolExecutor
 from backend.tools.calculator import CalculatorTool, calculate
 from backend.tools.composite import CompositeToolClient
-from backend.tools.datetime_tool import CurrentDateTimeTool
+from backend.tools.datetime_tool import DateTimeTool
 from backend.tools.registry import InternalToolRegistry
 
 
@@ -41,7 +41,7 @@ async def test_calculator_validates_inputs(arguments):
 
 @pytest.mark.asyncio
 async def test_timezones_and_date_rollover():
-    tool = CurrentDateTimeTool(lambda: datetime(2026, 9, 15, 18, 30, tzinfo=UTC))
+    tool = DateTimeTool(lambda: datetime(2026, 9, 15, 18, 30, tzinfo=UTC))
     result = (await tool.execute({})).structured_content
     assert result["datetime"] == "2026-09-16T03:30:00+09:00"
     assert result["weekday"] == "Wednesday"
@@ -58,7 +58,39 @@ async def test_timezones_and_date_rollover():
     {"timezone": "../UTC"}, {"timezone": 9}, {"extra": "x"}])
 async def test_invalid_timezone_inputs(arguments):
     with pytest.raises(ValueError):
-        await CurrentDateTimeTool().execute(arguments)
+        await DateTimeTool().execute(arguments)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("arguments", "expected"), [
+    ({"value": "2024-02-28", "offset_days": 1}, "2024-02-29T00:00:00+09:00"),
+    ({"value": "2026-01-01", "offset_days": -1}, "2025-12-31T00:00:00+09:00"),
+    ({"value": "2026-09-15T18:30:00Z"}, "2026-09-16T03:30:00+09:00"),
+    ({"value": "2026-09-15T12:30:00"}, "2026-09-15T12:30:00+09:00"),
+    ({"value": "2026-03-07T12:00:00", "timezone": "America/New_York", "offset_days": 1},
+     "2026-03-08T12:00:00-04:00"),
+    ({"value": "2026-11-01T01:30:00-05:00", "timezone": "America/New_York"},
+     "2026-11-01T01:30:00-05:00"),
+])
+async def test_datetime_values_conversion_and_calendar_shift(arguments, expected):
+    def unused_clock():
+        pytest.fail("explicit dates must not read the clock")
+    result = await DateTimeTool(unused_clock).execute(arguments)
+    assert result.structured_content["datetime"] == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("arguments", [
+    {"value": "tomorrow"}, {"value": "2026-02-30"}, {"value": 123},
+    {"offset_days": True}, {"offset_days": 1.5}, {"offset_days": 365001},
+    {"value": "9999-12-31", "offset_days": 1},
+    {"value": "2026-03-08T02:30:00", "timezone": "America/New_York"},
+    {"value": "2026-11-01T01:30:00", "timezone": "America/New_York"},
+    {"value": "2026-03-07T02:30:00", "timezone": "America/New_York", "offset_days": 1},
+])
+async def test_datetime_rejects_invalid_or_ambiguous_values(arguments):
+    with pytest.raises(ValueError):
+        await DateTimeTool().execute(arguments)
 
 
 class RemoteTools:
@@ -72,7 +104,7 @@ class RemoteTools:
 
 def clients():
     return CompositeToolClient(
-        {"internal": InternalToolRegistry([CalculatorTool(), CurrentDateTimeTool()])},
+        {"internal": InternalToolRegistry([CalculatorTool(), DateTimeTool()])},
         RemoteTools(),
     )
 
@@ -81,6 +113,9 @@ def clients():
 async def test_registry_routing_and_unknown_calls():
     client = clients()
     assert len(await client.list_tools()) == 3
+    assert "internal__get_datetime" in [tool.qualified_name for tool in await client.list_tools()]
+    dated = await client.call_tool("internal", "get_datetime", {"value": "2026-09-15"})
+    assert dated.structured_content["weekday_ko"] == "화요일"
     assert (await client.call_tool("docs", "search", {})).structured_content == {"found": True}
     assert (await client.call_tool("internal", "calculate", {"expression": "2+3"})).structured_content["result"] == "5"
     with pytest.raises(ValueError, match="unknown internal"):
@@ -115,15 +150,26 @@ async def test_chat_executes_internal_tool_and_respects_disabled_toggle(enabled)
                 yield {"tool_calls": [{"function": {
                     "name": "internal__calculate", "arguments": {"expression": "0.1+0.2"},
                 }}]}
-            else:
+            elif self.calls == 2:
                 assert '"result": "0.3"' in history[-1]["content"]
+                yield {"content": "잘못된 초안: 0.4입니다"}
+            else:
+                assert self.calls == 3
+                assert tools is None
+                assert history[-2]["content"] == "잘못된 초안: 0.4입니다"
+                assert history[-1]["role"] == "system"
                 yield {"content": "0.3입니다"}
 
     client = clients()
     policy = OCRToolPolicy()
     service = ChatService(Model(), client, "test", 2,
         tool_executor=ToolExecutor(client, policy), tool_policy=policy)
-    result = await service.run([ChatMessage(role="user", content="0.1+0.2")], enabled, None)
+    events = [event async for event in service.stream(
+        [ChatMessage(role="user", content="0.1+0.2")], enabled, None,
+    )]
+    result = ChatResponse.model_validate(events[-1]["data"])
+    visible = "".join(event["data"]["text"] for event in events if event["event"] == "delta")
+    assert visible == result.message.content
     assert result.message.content == ("0.3입니다" if enabled else "도구 꺼짐")
     assert len(result.tools) == int(enabled)
     if enabled:
