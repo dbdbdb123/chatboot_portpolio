@@ -7,9 +7,9 @@ from contextlib import aclosing
 from typing import Any
 
 from backend.constants.enums import MessageRole, StreamEvent
-from backend.images import ImageAttachment
+from backend.schemas.images import ImageAttachment
 from backend.mcp.interface import MCPToolCatalog
-from backend.models import ChatMessage, ChatResponse, ToolActivity
+from backend.schemas import ChatMessage, ChatResponse, ToolActivity
 from backend.services.context import build_history
 from backend.services.interfaces import ChatModel
 from backend.services.tool_policy import ToolPolicy

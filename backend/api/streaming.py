@@ -12,7 +12,7 @@ from backend.constants.chat import (
     STREAM_ERROR_MESSAGE,
 )
 from backend.constants.enums import StreamEvent
-from backend.models import ChatRequest
+from backend.schemas import ChatRequest
 from backend.services.chat import ChatService
 
 logger = logging.getLogger(__name__)

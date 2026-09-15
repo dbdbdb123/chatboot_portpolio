@@ -14,7 +14,8 @@ Mori는 Qwen3.5의 자연어 응답과 OCR 관련 MCP 도구 호출을 조율하
 - `main.py`: FastAPI 앱 진입점.
 - `backend/app.py`: lifespan에서 Settings·OllamaClient·ConfiguredMCPGateway·ChatService 생성 및 종료. API 등록 후 정적 UI 마운트.
 - `backend/api/routes.py`: health, 도구 목록, JSON 채팅, SSE 채팅 라우터.
-- `backend/models.py`: 요청·응답 Pydantic 모델.
+- `backend/schemas/`: Pydantic 모델과 검증. `chat.py`는 대화·요청·응답, `images.py`는 이미지 첨부, `tools.py`는 도구 실행 요약, `health.py`는 상태 응답을 담당한다.
+- `backend/models.py`, `backend/images.py`: 기존 import 호환을 위한 재노출 모듈.
 - `backend/services/chat.py`: 모델 추론과 도구 실행 순서 조율.
 - `backend/services/context.py`: 첨부 이미지와 시스템 안내를 포함한 모델 입력 구성.
 - `backend/services/tools.py`: 공통 호출 검증, 정책 적용 후 MCP 실행과 결과 변환.

@@ -4,6 +4,20 @@
 
 개발·유지보수 절차와 SOLID 책임 분리·정책 주입·확장 기준은 [개발 문서](docs/DEVELOPMENT.md)에 정리했습니다. [Notion 개발 문서](https://app.notion.com/p/3d10800670e98163b9fac85fedcdc5de)에서도 확인할 수 있습니다.
 
+## LangChain 대화 문맥
+
+`backend/services/context.py`에서 LangChain Core의 `ChatPromptTemplate`과
+`MessagesPlaceholder`로 시스템 프롬프트와 이전 대화를 결합합니다.
+일반 채팅에도 Mori 시스템 지침을 항상 적용하며, 이전 사용자 정보·선호·정정 사항을
+참고하도록 안내합니다. 도구 및 이미지가 있으면 OCR 지침도 추가합니다.
+Ollama 스트리밍과 MCP 도구 실행은 기존 서비스가 담당합니다.
+
+대화 이력은 현재 브라우저 탭에서 관리하며 API의 `messages`에 매번 함께 보냅니다.
+API를 직접 호출할 때도 이전 사용자·assistant 메시지와 현재 질문을 순서대로 보내야 합니다.
+대화 본문은 시스템 지침에 합치지 않고 원래 역할을 유지합니다.
+서버의 영구 메모리나 새로고침 후 복원 기능은 없으며, 새 대화는 이력을 초기화합니다.
+요청은 최대 100개 메시지이며 실제 회상 품질은 모델과 문맥 길이에 영향을 받습니다.
+
 ## 확인된 AWS EC2 사양
 
 - CPU: Intel Xeon Platinum 8488C, 2 vCPU

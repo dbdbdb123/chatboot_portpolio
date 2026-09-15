@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 from backend.constants.enums import HealthStatus, MCPTransport, MessageRole, StreamEvent
 from backend.dataclass.settings import MCPServerConfig
-from backend.models import ChatMessage, HealthResponse
+from backend.schemas import ChatMessage, HealthResponse
 
 
 @pytest.mark.parametrize("role", ["system", "user", "assistant", "tool"])

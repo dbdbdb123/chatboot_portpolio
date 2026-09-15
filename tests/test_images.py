@@ -13,8 +13,8 @@ from backend.api.deps import get_chat_service
 from backend.api.routes import router
 from backend.app import validation_error
 from backend.dataclass.mcp import MCPTool, MCPToolResult
-from backend.images import ImageAttachment
-from backend.models import ChatMessage, ChatRequest
+from backend.schemas.images import ImageAttachment
+from backend.schemas import ChatMessage, ChatRequest
 from backend.services.chat import ChatService
 from backend.services.tool_policy import OCRToolPolicy
 from backend.services.tools import ToolExecutor

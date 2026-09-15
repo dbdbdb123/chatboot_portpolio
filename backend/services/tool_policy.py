@@ -5,7 +5,7 @@ from typing import Any, Protocol
 
 from backend.constants.chat import OCR_TOOL_NAME
 from backend.dataclass.mcp import MCPTool
-from backend.images import ImageAttachment
+from backend.schemas.images import ImageAttachment
 
 
 @dataclass(frozen=True, slots=True)

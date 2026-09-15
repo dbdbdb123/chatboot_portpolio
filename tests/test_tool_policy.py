@@ -8,8 +8,8 @@ from test_images import attachment
 
 from backend.constants.chat import OCR_TOOL_NAME
 from backend.dataclass.mcp import MCPTool, MCPToolResult
-from backend.images import ImageAttachment
-from backend.models import ChatMessage
+from backend.schemas.images import ImageAttachment
+from backend.schemas import ChatMessage
 from backend.services.chat import ChatService
 from backend.services.tool_policy import OCRToolPolicy, ToolArguments
 from backend.services.tools import ToolExecutor

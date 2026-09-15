@@ -14,7 +14,7 @@ from backend.constants.app import API_PREFIX
 from backend.constants.chat import SSE_MEDIA_TYPE
 from backend.constants.enums import HealthStatus
 from backend.mcp.validation import ToolValidationError
-from backend.models import ChatRequest, ChatResponse, HealthResponse
+from backend.schemas import ChatRequest, ChatResponse, HealthResponse
 from backend.services.chat import ChatService
 
 router = APIRouter(prefix=API_PREFIX)

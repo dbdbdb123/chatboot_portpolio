@@ -3,7 +3,7 @@ from typing import Any
 import pytest
 
 from backend.dataclass.mcp import MCPTool, MCPToolResult
-from backend.models import ChatMessage, ToolActivity
+from backend.schemas import ChatMessage, ToolActivity
 from backend.services.chat import ChatService
 from backend.services.tool_policy import OCRToolPolicy
 from backend.services.tools import ToolExecution, ToolExecutor
@@ -51,6 +51,34 @@ class FakeOllama:
                 ],
             }
         return {"role": "assistant", "content": "README에서 찾았습니다."}
+
+
+@pytest.mark.asyncio
+async def test_follow_up_history_reaches_model_without_tools():
+    """앞선 사용자 정보와 모델 답변이 다음 추론 입력까지 도달하는지 확인한다."""
+    class RecordingModel:
+        async def stream_chat(self, model, messages, tools=None, think=False):
+            assert messages[0]["role"] == "system"
+            assert messages[1:] == [
+                {"role": "user", "content": "내 이름은 민수야"},
+                {"role": "assistant", "content": "반가워요, 민수님"},
+                {"role": "user", "content": "내 이름이 뭐야?"},
+            ]
+            assert tools is None
+            yield {"content": "민수님입니다."}
+
+    mcp = FakeMCP()
+    policy = OCRToolPolicy()
+    service = ChatService(
+        RecordingModel(), mcp, "test", 1,
+        tool_executor=ToolExecutor(mcp, policy), tool_policy=policy,
+    )
+    result = await service.run([
+        ChatMessage(role="user", content="내 이름은 민수야"),
+        ChatMessage(role="assistant", content="반가워요, 민수님"),
+        ChatMessage(role="user", content="내 이름이 뭐야?"),
+    ], False, None)
+    assert result.message.content == "민수님입니다."
 
 
 @pytest.mark.asyncio

@@ -11,7 +11,7 @@ from test_chat_service import FakeMCP, FakeOllama
 from backend.api import streaming
 from backend.api.deps import get_chat_service
 from backend.api.routes import router
-from backend.models import ChatMessage, ChatRequest
+from backend.schemas import ChatMessage, ChatRequest
 from backend.ollama import OllamaClient
 from backend.services.chat import ChatService
 from backend.services.tool_policy import OCRToolPolicy

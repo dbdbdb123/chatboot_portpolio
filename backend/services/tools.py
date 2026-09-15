@@ -6,9 +6,9 @@ from typing import Any, Protocol
 
 from backend.constants.enums import MessageRole
 from backend.dataclass.mcp import MCPTool
-from backend.images import ImageAttachment
+from backend.schemas.images import ImageAttachment
 from backend.mcp.interface import MCPToolCaller
-from backend.models import ToolActivity
+from backend.schemas import ToolActivity
 from backend.services.tool_policy import ToolPolicy
 
 
