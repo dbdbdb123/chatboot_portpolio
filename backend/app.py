@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+import os
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -17,11 +18,12 @@ from backend.dataclass.settings import Settings
 from backend.mcp.stdio_gateway import ConfiguredMCPGateway
 from backend.ollama import OllamaClient
 from backend.services.chat import ChatService
+from backend.services.rag import RagService, RagStore
 from backend.services.tool_policy import OCRToolPolicy
 from backend.services.tools import ToolExecutor
 from backend.tools.calculator import CalculatorTool
 from backend.tools.composite import CompositeToolClient
-from backend.tools.datetime_tool import CurrentDateTimeTool
+from backend.tools.datetime_tool import DateTimeTool
 from backend.tools.registry import INTERNAL_SERVER, InternalToolRegistry
 from backend.tools.conversation import SearchConversationTool
 from backend.tools.knowledge import DocumentStore, ReadKnowledgeTool, SearchKnowledgeTool
@@ -42,7 +44,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.ollama = ollama
     app.state.mcp = mcp
     tool_policy = OCRToolPolicy()
-    shared_tools = [CurrentDateTimeTool(), CalculatorTool(),
+    shared_tools = [DateTimeTool(), CalculatorTool(),
                     SearchKnowledgeTool(knowledge), ReadKnowledgeTool(knowledge)]
     tools = CompositeToolClient(
         {INTERNAL_SERVER: InternalToolRegistry([*shared_tools, SearchConversationTool([])])},
@@ -68,9 +70,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         tool_policy=tool_policy,
         tool_runner_factory=request_runner,
     )
+    rag_model = OllamaClient(settings.ollama_base_url, settings.request_timeout_seconds,
+        options=settings.generation.model_copy(update={"num_ctx": 4096, "num_predict": 512}))
+    app.state.rag_service = RagService(
+        RagStore(os.environ.get("QDRANT_URL", "http://127.0.0.1:6333"),
+                 os.environ.get("QDRANT_API_KEY"), os.environ.get("RAG_COLLECTION", "mori")),
+        rag_model, settings.ollama_model, settings.ollama_base_url,
+        os.environ.get("RAG_EMBEDDING_MODEL", "embeddinggemma"),
+    )
     try:
         yield
     finally:
+        await app.state.rag_service.close()
+        await rag_model.close()
         # 네트워크/서브프로세스 리소스가 예외 상황에서도 닫히도록 보장한다.
         await mcp.close()
         await ollama.close()

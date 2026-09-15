@@ -10,7 +10,7 @@
 
 | 도구 | 입력 | 기능 |
 | --- | --- | --- |
-| `internal__get_current_datetime` | `timezone` (기본 `Asia/Seoul`) | IANA 시간대의 현재 날짜·시각·요일 조회 |
+| `internal__get_datetime` | `timezone` (기본 `Asia/Seoul`), `value` (선택 ISO 날짜·시각), `offset_days` (기본 0) | 현재/지정 날짜·시각·요일 조회, 시간대 변환, 달력 일수 이동 |
 | `internal__calculate` | `expression` | 소수·괄호·`+ - * /` 계산, 유효숫자 28자리 |
 | `internal__search_conversation` | `query`, `limit` (기본 5) | 현재 요청의 이전 사용자·assistant 대화 검색, 최신순 |
 | `internal__search_knowledge` | `query`, `limit` (기본 5) | 등록 문서에서 키워드 검색, 문서 ID·줄 번호 반환 |
@@ -311,3 +311,74 @@ docker compose down
 도구 OFF에서도 이미지 질문은 가능합니다. OCR MCP를 쓰려면 도구 ON과 MCP 연결이 필요합니다. 첨부는 현재 전송에만 포함되며 후속 요청에서 같은 이미지를 다시 분석하려면 재첨부합니다. 텍스트 없이 이미지만 보내면 기본 질문은 “첨부 이미지를 설명해 줘.”입니다.
 
 JSON 채팅/SSE 요청에는 선택적 `image: {name, mime_type, data_base64}` 필드가 추가됩니다. 프런트엔드에서 미리보기·제거와 실패 시 재전송을 지원합니다. 이 변경의 로컬 테스트는 39개 통과했으며, AWS 반영은 별도 이미지 배포가 필요합니다.
+
+### 날짜 도구 사용 예시
+
+`get_current_datetime`은 `get_datetime`으로 변경했습니다. `value`를 생략하면 현재 시각을 조회합니다.
+
+- 특정 날짜 요일: `{"value":"2026-09-15"}`
+- 시간대 변환: `{"value":"2026-09-15T18:30:00Z","timezone":"Asia/Seoul"}`
+- 내일: `{"offset_days":1}`
+- 지정 날짜 일주일 전: `{"value":"2026-09-15","offset_days":-7}`
+
+시간대 오프셋 없는 입력은 대상 시간대의 현지 시각, 날짜만 있는 입력은 자정으로 처리합니다. 일수 이동은 현지 달력 기준입니다. DST로 존재하지 않거나 중복되는 현지 시각은 오류로 반환합니다.
+
+
+## 문서 질문 (RAG · Qdrant)
+
+문서 질문 모드는 백엔드가 먼저 문서를 검색한 뒤 관련 구간을 모델에 전달합니다.
+저장소는 **Qdrant 벡터 DB만** 사용합니다. 원문·파일명·해시·줄 번호도 Qdrant payload에 저장합니다.
+임베딩은 로컬 Ollama의 `embeddinggemma`(768차원)로 생성합니다.
+
+### 실행과 사용
+
+```powershell
+docker compose up -d --build
+```
+
+첫 실행에는 대화 모델과 임베딩 모델을 준비합니다. Qdrant 데이터는 `qdrant-data` 볼륨에 유지됩니다.
+UI에서 **문서 관리 → Markdown/TXT/PDF 파일 선택 → 등록 완료 → 문서 질문 ON** 순서로 사용합니다.
+예제 `docs/RAG_SAMPLE.md`를 등록한 뒤 "Mori 문서 담당자는 누구야?"라고 질문할 수 있습니다.
+검색한 파일명·줄 번호가 답변 아래에 표시됩니다. 문서 관리의 **보기**로 원문을 확인할 수 있습니다.
+동일 파일명 재등록은 갱신, 동일 내용은 재색인 생략, **삭제**는 검색 대상에서도 제외합니다.
+
+- UTF-8 `.md`·`.txt`, 파일당 200 KB 이하, 최대 100개 문서.
+- 문서 질문은 800자 이하의 독립적인 질문을 입력합니다. 현재는 이전 대화를 검색 질의에 합치지 않습니다.
+- 문서 질문 모드의 검색은 일반 **도구 사용** 토글과 별개입니다. 이미지 첨부는 일반 모드에서 사용합니다.
+- 질문당 의미 검색 후보와 키워드 검색 후보를 합쳐 최대 3개 구간을 전달합니다.
+- 한국어 조사 차이를 줄이기 위해 키워드에 한글 2글자 조각도 포함합니다.
+- 검색 후보가 없으면 모델을 호출하지 않습니다. 후보가 있어도 답이 없다면 확인 불가로 답하도록 지시합니다.
+- 출처 목록은 서버가 구성하지만 모델 답변의 모든 주장이 자동으로 입증되는 것은 아닙니다.
+- 일반 대화의 문맥 설정은 유지하고 RAG 답변 전용 호출은 `num_ctx=4096`, `num_predict=512`를 사용합니다.
+- PDF 자동 OCR, 사용자별 문서 권한, 분산 색인 작업은 아직 지원하지 않습니다. 현재 앱은 단일 프로세스 로컬 사용 기준입니다.
+
+### 저장 구조와 설정
+
+- `mori_documents`: 원문·파일명·해시·활성 버전 payload를 담는 문서 컬렉션.
+- `mori_chunks`: 문단 벡터와 본문·줄 번호·키워드를 담는 검색 컬렉션.
+- 갱신 시 새 버전 문단을 모두 기록한 다음 문서의 활성 버전을 변경합니다.
+  비활성 버전은 검색하지 않습니다. 정리 실패 시 비활성 포인트가 남을 수 있으므로 로그를 확인하세요.
+- 환경 변수: `QDRANT_URL`(로컬 기본 `http://127.0.0.1:6333`), `QDRANT_API_KEY`(선택),
+  `RAG_COLLECTION`(기본 `mori`), `RAG_EMBEDDING_MODEL`(기본 `embeddinggemma`).
+- 임베딩 모델은 768차원 기준이며, 모델을 바꾸면 문서를 다시 등록해야 합니다.
+- Qdrant 대시보드: [localhost:6333/dashboard](http://localhost:6333/dashboard).
+- 문서 API: `GET/POST /api/knowledge/documents`, `GET/DELETE /api/knowledge/documents/{id}`.
+  등록 본문은 `{"name":"guide.md","content":"문서 내용"}`입니다.
+- `/api/chat`와 `/api/chat/stream`에 `use_knowledge: true`를 보내면 문서 질문 모드가 됩니다.
+
+API 참고: [Ollama 임베딩](https://docs.ollama.com/api/embed),
+[Qdrant 검색](https://api.qdrant.tech/api-reference/search/query-points).
+
+
+### PDF 등록
+
+문서 관리에서 `.pdf`를 선택하면 서버가 페이지별 텍스트를 추출해 Qdrant에 저장합니다.
+답변 출처는 `파일.pdf (p.2, L1–L8)`처럼 실제 PDF 페이지 번호(1부터 시작)와
+해당 페이지의 추출 텍스트 줄 번호를 표시합니다. 인쇄된 페이지 라벨과는 다를 수 있습니다.
+
+- 파일 크기 10 MB, 1~100페이지, 추출 텍스트 총 200 KB까지 지원합니다.
+- 텍스트 없는 스캔 PDF는 OCR 처리가 필요하다는 메시지를 반환합니다.
+- 일부 페이지만 텍스트가 없으면 해당 페이지를 제외하고 등록하며 제외 페이지 번호를 안내합니다.
+- 암호화된 PDF는 암호 해제 후 등록해야 합니다. 표·다단 편집의 읽기 순서는 추출 결과에 따라 달라질 수 있습니다.
+- 원본 PDF 바이너리는 저장하지 않고 페이지 구분이 있는 추출 텍스트와 벡터를 Qdrant에 보관합니다.
+- API: `POST /api/knowledge/pdf?name=guide.pdf`, `Content-Type: application/pdf`, 본문은 PDF 바이너리입니다.

@@ -201,3 +201,15 @@ button { color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
 }
+
+/* Document library */
+#documentsDialog { width: min(640px, 90vw); max-height: 85vh; overflow: auto; border: 1px solid #cbd5e1; border-radius: 16px; padding: 24px; color: #12233e; }
+#documentsDialog::backdrop { background: #10213b66; }
+#documentsDialog p { line-height: 1.6; }
+#documentList { list-style: none; padding: 0; }
+#documentList li { display: flex; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid #e2e8f0; }
+#documentList li span { flex: 1; overflow-wrap: anywhere; }
+#documentsDialog button { padding: 7px 12px; border: 1px solid #cbd5e1; border-radius: 8px; cursor: pointer; background: #f5faf9; }
+#documentPreview { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 35vh; overflow: auto; background: #f1f5f9; padding: 12px; }
+.composer-actions { flex-wrap: wrap; }
+#knowledgeToggle[aria-pressed="true"] { color: #008a70; background: #e8f8f2; }

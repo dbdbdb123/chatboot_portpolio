@@ -1,6 +1,13 @@
 name: mori
 
 services:
+  qdrant:
+    image: qdrant/qdrant:v1.17.0
+    restart: unless-stopped
+    volumes:
+      - qdrant-data:/qdrant/storage
+    ports:
+      - "127.0.0.1:6333:6333"
   # 실제 Qwen 모델을 로딩하고 추론 API를 제공한다.
   ollama:
     image: ollama/ollama:latest
@@ -27,7 +34,7 @@ services:
     volumes:
       - ollama-data:/root/.ollama
     entrypoint: ["/bin/sh", "-c"]
-    command: ["OLLAMA_HOST=http://ollama:11434 ollama pull qwen3.5:2b-q4_K_M"]
+    command: ["export OLLAMA_HOST=http://ollama:11434; ollama pull qwen3.5:2b-q4_K_M && ollama pull embeddinggemma"]
     depends_on:
       ollama:
         condition: service_healthy
@@ -41,9 +48,13 @@ services:
     environment:
       OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_MODEL: qwen3.5:2b-q4_K_M
+      QDRANT_URL: http://qdrant:6333
+      RAG_EMBEDDING_MODEL: embeddinggemma
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
+      qdrant:
+        condition: service_started
       ollama:
         condition: service_healthy
       model-init:
@@ -52,3 +63,4 @@ services:
 volumes:
   # compose down 후에도 다운로드한 모델을 유지한다.
   ollama-data:
+  qdrant-data:

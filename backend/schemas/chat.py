@@ -37,6 +37,7 @@ class ChatRequest(BaseModel):
 
     messages: list[ChatMessage] = Field(min_length=1, max_length=MAX_CHAT_MESSAGES)
     use_tools: bool = True
+    use_knowledge: bool = False
     think: bool = False
     model: str | None = None
     image: ImageAttachment | None = None

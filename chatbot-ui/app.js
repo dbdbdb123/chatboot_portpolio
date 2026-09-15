@@ -5,6 +5,7 @@ const input = document.querySelector('#messageInput');
 const conversation = document.querySelector('#conversation');
 const welcome = document.querySelector('#welcome');
 const toolToggle = document.querySelector('#toolToggle');
+const knowledgeToggle = document.querySelector('#knowledgeToggle');
 const thinkingToggle = document.querySelector('#thinkingToggle');
 const thinkingState = document.querySelector('#thinkingState');
 
@@ -48,9 +49,10 @@ function setImageReading(reading) {
 
 /** 응답 처리 중 중복 전송과 옵션 변경을 막도록 관련 버튼을 잠그거나 해제한다. */
 function setSending(sending) {
-  [sendButton, thinkingToggle, attachImage, removeImage, toolToggle].forEach(button => {
+  [sendButton, thinkingToggle, attachImage, removeImage, toolToggle, knowledgeToggle].forEach(button => {
     button.disabled = sending;
   });
+  attachImage.disabled = sending || knowledgeToggle.getAttribute('aria-pressed') === 'true';
 }
 
 /** 선택한 이미지 데이터와 파일 입력값, 미리보기를 초기화한다. */
@@ -314,6 +316,7 @@ async function handleChatSubmit(event) {
       body: JSON.stringify({
         messages: chatMessages,
         use_tools: toolToggle.getAttribute('aria-pressed') === 'true',
+        use_knowledge: knowledgeToggle.getAttribute('aria-pressed') === 'true',
         think,
         image,
       }),
@@ -348,7 +351,7 @@ input.addEventListener('keydown', (event) => {
 toolToggle.addEventListener('click', () => {
   const enabled = toolToggle.getAttribute('aria-pressed') !== 'true';
   toolToggle.setAttribute('aria-pressed', String(enabled));
-  showToast(enabled ? 'OCR 도구 사용이 켜졌습니다.' : 'OCR 도구 사용이 꺼졌습니다.');
+  showToast(enabled ? '도구 사용이 켜졌습니다.' : '도구 사용이 꺼졌습니다.');
 });
 
 thinkingToggle.addEventListener('click', () => {
@@ -400,3 +403,98 @@ attachImage.addEventListener('click', () => imageInput.click());
 removeImage.addEventListener('click', clearImage);
 imageInput.addEventListener('change', handleImageSelection);
 form.addEventListener('submit', handleChatSubmit);
+
+
+knowledgeToggle.addEventListener('click', () => {
+  const enabled = knowledgeToggle.getAttribute('aria-pressed') !== 'true';
+  knowledgeToggle.setAttribute('aria-pressed', String(enabled));
+  knowledgeToggle.textContent = enabled ? '문서 질문 ON' : '문서 질문 OFF';
+  if (enabled) clearImage();
+  attachImage.disabled = enabled;
+  input.maxLength = enabled ? 800 : 2000;
+  input.placeholder = enabled ? '등록 문서에 대해 구체적으로 질문하세요 (800자 이내)' : '무엇이든 물어보세요';
+  showToast(enabled ? '등록된 문서에서 먼저 검색합니다.' : '일반 대화 모드입니다.');
+});
+
+const documentsDialog = document.querySelector('#documentsDialog');
+const documentInput = document.querySelector('#documentInput');
+const documentStatus = document.querySelector('#documentStatus');
+const documentPreview = document.querySelector('#documentPreview');
+
+async function documentRequest(url, options) {
+  const response = await fetch(url, options);
+  const data = await response.json();
+  if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : '문서 요청에 실패했습니다.');
+  return data;
+}
+
+async function refreshDocuments() {
+  const data = await documentRequest('/api/knowledge/documents');
+  const list = document.querySelector('#documentList');
+  list.replaceChildren();
+  if (!data.documents.length) list.textContent = '등록된 문서가 없습니다. 파일을 선택해 등록하세요.';
+  for (const doc of data.documents) {
+    const item = document.createElement('li');
+    const label = document.createElement('span');
+    label.textContent = doc.name;
+    const view = document.createElement('button');
+    view.type = 'button';
+    view.textContent = '보기';
+    view.addEventListener('click', async () => {
+      try {
+        const content = await documentRequest(`/api/knowledge/documents/${doc.id}`);
+        documentPreview.textContent = content.content;
+        documentPreview.hidden = false;
+      } catch (error) { documentStatus.textContent = error.message; }
+    });
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = '삭제';
+    remove.setAttribute('aria-label', `${doc.name} 삭제`);
+    remove.addEventListener('click', async () => {
+      remove.disabled = true;
+      try {
+        await documentRequest(`/api/knowledge/documents/${doc.id}`, {method: 'DELETE'});
+        documentPreview.hidden = true;
+        documentStatus.textContent = `${doc.name} 삭제 완료`;
+        await refreshDocuments();
+      } catch (error) { documentStatus.textContent = error.message; remove.disabled = false; }
+    });
+    item.append(label, view, remove);
+    list.append(item);
+  }
+}
+
+document.querySelector('#documentsButton').addEventListener('click', async () => {
+  documentsDialog.showModal();
+  try { await refreshDocuments(); } catch (error) { documentStatus.textContent = error.message; }
+});
+document.querySelector('#closeDocuments').addEventListener('click', () => documentsDialog.close());
+documentInput.addEventListener('change', async () => {
+  const file = documentInput.files[0];
+  if (!file) return;
+  documentInput.disabled = true;
+  documentStatus.textContent = '문서 등록 및 검색 준비 중… 처음에는 시간이 걸릴 수 있습니다.';
+  try {
+    const isPdf = /\.pdf$/i.test(file.name);
+    let result;
+    if (isPdf) {
+      if (file.size > 10000000) throw new Error('PDF는 10 MB 이하로 등록하세요.');
+      result = await documentRequest(`/api/knowledge/pdf?name=${encodeURIComponent(file.name)}`, {
+        method: 'POST', headers: {'Content-Type': 'application/pdf'}, body: file,
+      });
+    } else {
+      if (file.size > 200000 || !/\.(md|txt)$/i.test(file.name)) throw new Error('Markdown·TXT(200 KB 이하) 또는 PDF(10 MB 이하)를 선택하세요.');
+      const content = new TextDecoder('utf-8', {fatal: true}).decode(await file.arrayBuffer());
+      result = await documentRequest('/api/knowledge/documents', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: file.name, content}),
+      });
+    }
+    documentStatus.textContent = result.unchanged ? '변경된 내용이 없습니다.' : '문서 등록 완료. 문서 질문을 켜고 질문하세요.';
+    if (result.empty_pages?.length) {
+      documentStatus.textContent += ` 텍스트 없는 페이지(${result.empty_pages.join(', ')})는 검색에서 제외됩니다. 스캔된 부분은 OCR이 필요합니다.`;
+    }
+    await refreshDocuments();
+  } catch (error) { documentStatus.textContent = error.message; }
+  finally { documentInput.disabled = false; documentInput.value = ''; }
+});

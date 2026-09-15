@@ -6,6 +6,8 @@ __pycache__
 .pytest_cache
 tests
 design
+data
+artifacts
 uv.lock
 .env
 *.log

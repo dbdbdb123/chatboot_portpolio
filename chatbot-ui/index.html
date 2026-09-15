@@ -56,8 +56,10 @@
             <label for="messageInput" class="sr-only">메시지 입력</label>
             <textarea id="messageInput" rows="1" placeholder="무엇이든 물어보세요" maxlength="2000"></textarea>
             <div class="composer-actions">
+              <button class="tool-toggle" id="knowledgeToggle" type="button" aria-pressed="false">문서 질문 OFF</button>
+              <button class="tool-toggle" id="documentsButton" type="button">문서 관리</button>
               <button class="tool-toggle" id="attachImage" type="button" aria-label="이미지 첨부" title="PNG·JPEG·WebP 1장, 최대 10MB">이미지 첨부</button>
-              <button class="tool-toggle" id="toolToggle" type="button" aria-pressed="true"><span>⌘</span> OCR 도구 <span class="chevron"></span></button>
+              <button class="tool-toggle" id="toolToggle" type="button" aria-pressed="true"><span>⌘</span> 도구 사용 <span class="chevron"></span></button>
               <button class="tool-toggle" id="thinkingToggle" type="button" aria-label="Thinking 모드" aria-pressed="false" title="켜면 답변 전 추론을 수행하며 대기 시간이 길어질 수 있습니다.">Thinking <span id="thinkingState">OFF</span></button>
               <button class="send-button" id="sendButton" type="submit" aria-label="메시지 보내기">➤</button>
             </div>
@@ -69,6 +71,15 @@
   </div>
 
   <div class="toast" id="toast" role="status"></div>
+  <dialog id="documentsDialog" aria-labelledby="documentsTitle">
+    <h2 id="documentsTitle">등록 문서</h2>
+    <p>Markdown·TXT: UTF-8, 200 KB / PDF: 10 MB, 100페이지<br>추출 텍스트 최대 200 KB, 문서 최대 100개<br>같은 파일명으로 등록하면 내용을 갱신합니다.</p>
+    <input id="documentInput" type="file" accept=".md,.txt,.pdf" aria-label="등록할 문서">
+    <p id="documentStatus" role="status"></p>
+    <ul id="documentList"></ul>
+    <pre id="documentPreview" hidden></pre>
+    <button id="closeDocuments" type="button">닫기</button>
+  </dialog>
   <script src="constants.js"></script>
   <script src="app.js"></script>
 </body>
