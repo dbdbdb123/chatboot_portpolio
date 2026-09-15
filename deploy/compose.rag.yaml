@@ -1,0 +1,18 @@
+# AWS /home/ubuntu/mori의 기존 Compose 및 OCR override에 추가한다.
+# 기존 app 이미지·8080 바인딩·OCR 네트워크를 유지한다.
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.17.0
+    restart: unless-stopped
+    volumes:
+      - qdrant-data:/qdrant/storage
+  app:
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      RAG_EMBEDDING_MODEL: embeddinggemma
+    depends_on:
+      qdrant:
+        condition: service_started
+
+volumes:
+  qdrant-data:
