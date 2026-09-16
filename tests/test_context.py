@@ -14,10 +14,14 @@ def test_plain_chat_keeps_system_prompt_and_previous_turns():
     ]
     original = [message.model_dump() for message in messages]
     history = build_history(messages, [], None)
-    assert history[0]["role"] == "system"
-    assert "You are Mori" in history[0]["content"]
-    assert "preceding conversation" in history[0]["content"]
-    assert history[1:] == original
+    assert history[0].type == "system"
+    assert "You are Mori" in history[0].text
+    assert "preceding conversation" in history[0].text
+    assert [(message.type, message.text) for message in history[1:]] == [
+        ("human", original[0]["content"]),
+        ("ai", original[1]["content"]),
+        ("human", original[2]["content"]),
+    ]
     assert [message.model_dump() for message in messages] == original
 
 
@@ -34,7 +38,11 @@ def test_existing_system_and_tool_roles_are_preserved():
         ChatMessage(role="tool", content="문서 내용 {history}"),
         ChatMessage(role="user", content="요약해줘"),
     ]
-    assert build_history(messages, [], None)[1:] == [m.model_dump() for m in messages]
+    assert [(message.type, message.text) for message in build_history(messages, [], None)[1:]] == [
+        ("system", messages[0].content),
+        ("tool", messages[1].content),
+        ("human", messages[2].content),
+    ]
 
 
 def test_disabled_tools_do_not_advertise_internal_capabilities():

@@ -1,7 +1,5 @@
-import json
-
-import httpx
 import pytest
+from langchain_core.messages import AIMessage, AIMessageChunk
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from test_chat_service import FakeMCP, FakeOllama
@@ -17,55 +15,41 @@ from backend.services.tools import ToolExecutor
 @pytest.mark.asyncio
 @pytest.mark.parametrize("think", [False, True])
 async def test_thinking_reaches_ollama_in_both_modes(think):
-    """일반 응답과 스트리밍 모두 Thinking 선택을 Ollama에 전달하는지 확인한다."""
+    """일반 응답과 스트리밍 모두 reasoning 선택으로 LangChain 모델을 구성한다."""
     seen = []
 
-    def handle(request):
-        payload = json.loads(request.content)
-        assert payload["think"] is think
-        seen.append(payload["stream"])
-        if payload["stream"]:
-            return httpx.Response(200, text='{"message":{"content":"OK"},"done":true}\n')
-        return httpx.Response(200, json={"message": {"content": "OK"}})
+    class Model:
+        async def ainvoke(self, messages):
+            seen.append("invoke")
+            return AIMessage(content="OK")
+
+        async def astream(self, messages):
+            seen.append("stream")
+            yield AIMessageChunk(content="OK")
 
     client = OllamaClient("http://test", 1)
-    await client.close()
-    client._client = httpx.AsyncClient(
-        transport=httpx.MockTransport(handle), base_url="http://test"
+    client._model = lambda model, actual_think: (
+        Model() if actual_think is think else pytest.fail("reasoning selection changed")
     )
     try:
         await client.chat("test", [], think=think)
         assert [chunk async for chunk in client.stream_chat("test", [], think=think)]
-        assert seen == [False, True]
+        assert seen == ["invoke", "stream"]
     finally:
         await client.close()
 
 
 @pytest.mark.asyncio
 async def test_ollama_client_sends_generation_options_to_api():
-    """OllamaClient가 GenerationOptions를 payload의 options 필드로 정확히 전달하는지 확인한다."""
+    """OllamaClient가 GenerationOptions를 ChatOllama 구성값으로 전달한다."""
     from backend.schemas.generation import GenerationOptions
-
-    seen_options = []
-
-    def handle(request):
-        payload = json.loads(request.content)
-        seen_options.append(payload.get("options"))
-        if payload.get("stream"):
-            return httpx.Response(200, text='{"message":{"content":"OK"},"done":true}\n')
-        return httpx.Response(200, json={"message": {"content": "OK"}})
 
     options = GenerationOptions(temperature=0.3, presence_penalty=0.0, top_k=40)
     client = OllamaClient("http://test", 1, options=options)
-    await client.close()
-    client._client = httpx.AsyncClient(
-        transport=httpx.MockTransport(handle), base_url="http://test"
-    )
     try:
-        await client.chat("test", [])
-        assert [chunk async for chunk in client.stream_chat("test", [])]
-        expected = {"temperature": 0.3, "presence_penalty": 0.0, "top_k": 40}
-        assert seen_options == [expected, expected]
+        model = client._model("test", False)
+        assert model.temperature == 0.3
+        assert model.top_k == 40
         assert client.options.temperature == 0.3
     finally:
         await client.close()

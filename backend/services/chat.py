@@ -7,6 +7,8 @@ from contextlib import aclosing
 import json
 from typing import Any
 
+from langchain_core.messages import AIMessage, AIMessageChunk, SystemMessage
+
 from backend.constants.enums import MessageRole, StreamEvent
 from backend.prompts.chat import CALCULATION_REVIEW_PROMPT
 from backend.schemas.images import ImageAttachment
@@ -16,7 +18,7 @@ from backend.services.context import build_history
 from backend.services.date_validation import is_date_conversation, resolve_date_followup, validate_date_answer
 from backend.services.interfaces import ChatModel
 from backend.services.tool_policy import ToolPolicy
-from backend.services.tools import ToolRunner
+from backend.services.tools import ToolRunner, build_langchain_tools
 
 
 class ChatService:
@@ -105,6 +107,7 @@ class ChatService:
         history = build_history(messages, tools, image)
         activities: list[ToolActivity] = []
         tool_index = {tool.qualified_name: tool for tool in tools}
+        bound_tools = build_langchain_tools(tools, runner, image)
         followup = resolve_date_followup(messages) if image is None else None
         if followup is not None:
             answer = followup.clarification
@@ -122,7 +125,7 @@ class ChatService:
                     if execution.activity.is_error:
                         answer = "날짜 조회에 실패했습니다. 잠시 후 다시 시도해 주세요."
                     else:
-                        payload = json.loads(execution.message["content"])
+                        payload = json.loads(str(execution.message.content))
                         if followup.value and payload.get("date") != followup.value:
                             raise RuntimeError("date lookup returned a different date")
                         year, month, day = map(int, payload["date"].split("-"))
@@ -141,54 +144,72 @@ class ChatService:
         # 마지막 1회는 도구 결과를 읽은 모델이 최종 답변을 만들 기회다.
         for round_index in range(self._max_tool_rounds + 1):
             yield {"event": StreamEvent.ROUND, "data": {"index": round_index}}
-            assistant: dict[str, Any] = {
-                "role": MessageRole.ASSISTANT,
-                "content": "",
-                "thinking": "",
-                "tool_calls": [],
-            }
+            # LangChain 메시지 조각은 덧셈으로 콘텐츠·도구 호출 조각·메타데이터가 병합된다.
+            assistant_chunk: AIMessageChunk | None = None
+            # 기존 테스트 모델을 순차 마이그레이션할 동안 공급자 사전 조각도 경계에서만 수용한다.
+            legacy_content = ""
+            legacy_calls: list[dict[str, Any]] = []
             async with aclosing(
                 self._ollama.stream_chat(
                     selected_model,
                     history,
-                    [tool.as_ollama_tool() for tool in tools] or None,
+                    bound_tools or None,
                     think,
                 )
             ) as chunks:
                 async for chunk in chunks:
-                    content = chunk.get("content") or ""
-                    assistant["content"] += content
-                    assistant["thinking"] += chunk.get("thinking") or ""
-                    assistant["tool_calls"].extend(chunk.get("tool_calls") or [])
+                    if isinstance(chunk, AIMessageChunk):
+                        assistant_chunk = chunk if assistant_chunk is None else assistant_chunk + chunk
+                        content = chunk.text
+                    else:
+                        content = str(chunk.get("content") or "")
+                        legacy_content += content
+                        legacy_calls.extend(chunk.get("tool_calls") or [])
                     if content and not calculation_used and not check_dates:
                         yield {"event": StreamEvent.DELTA, "data": {"text": content}}
-            calls = assistant.get("tool_calls") or []
+            if assistant_chunk is not None:
+                assistant = AIMessage(
+                    content=assistant_chunk.content,
+                    tool_calls=assistant_chunk.tool_calls,
+                    additional_kwargs=assistant_chunk.additional_kwargs,
+                )
+                calls = assistant.tool_calls
+            else:
+                assistant = AIMessage(content=legacy_content)
+                calls = legacy_calls
             if not calls:
                 if calculation_used:
                     # 계산 답변 초안은 공개 전에 별도 모델 호출로 한 번만 검토한다.
                     review_history = [
                         *history,
                         assistant,
-                        {"role": MessageRole.SYSTEM, "content": CALCULATION_REVIEW_PROMPT},
+                        SystemMessage(content=CALCULATION_REVIEW_PROMPT),
                     ]
                     reviewed = ""
                     async with aclosing(self._ollama.stream_chat(
                         selected_model, review_history, None, think,
                     )) as chunks:
                         async for chunk in chunks:
-                            if chunk.get("tool_calls"):
+                            chunk_calls = (
+                                chunk.tool_calls if isinstance(chunk, AIMessageChunk)
+                                else chunk.get("tool_calls") or []
+                            )
+                            if chunk_calls:
                                 raise RuntimeError("calculation review requested unavailable tools")
-                            reviewed += chunk.get("content") or ""
+                            reviewed += (
+                                chunk.text if isinstance(chunk, AIMessageChunk)
+                                else str(chunk.get("content") or "")
+                            )
                     if not reviewed.strip():
                         raise RuntimeError("calculation review returned an empty answer")
-                    assistant["content"] = reviewed
+                    assistant = AIMessage(content=reviewed)
                 if check_dates:
-                    assistant["content"] = validate_date_answer(assistant["content"])
+                    assistant = AIMessage(content=validate_date_answer(assistant.text))
                 if calculation_used or check_dates:
-                    yield {"event": StreamEvent.DELTA, "data": {"text": assistant["content"]}}
+                    yield {"event": StreamEvent.DELTA, "data": {"text": assistant.text}}
                 result = ChatResponse(
                     message=ChatMessage(
-                        role=MessageRole.ASSISTANT, content=str(assistant.get("content", ""))
+                        role=MessageRole.ASSISTANT, content=assistant.text
                     ),
                     model=selected_model,
                     tools=activities,
@@ -203,6 +224,6 @@ class ChatService:
                 activities.append(execution.activity)
                 yield {"event": StreamEvent.TOOL, "data": execution.activity.model_dump()}
                 history.append(execution.message)
-                if call.get("function", {}).get("name") == "internal__calculate":
+                if (call.get("name") or call.get("function", {}).get("name")) == "internal__calculate":
                     calculation_used = True
         raise RuntimeError("maximum tool rounds exceeded")

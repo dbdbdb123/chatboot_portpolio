@@ -82,12 +82,12 @@ async def test_app_wiring_and_concurrent_conversation_isolation(monkeypatch):
     class Model:
         async def stream_chat(self, model, history, tools=None, think=False):
             await asyncio.sleep(0)
-            if history[-1]["role"] != "tool":
-                assert len([t for t in tools if t["function"]["name"].startswith("internal__")]) == 5
+            if history[-1].type != "tool":
+                assert len([tool for tool in tools if tool.name.startswith("internal__")]) == 5
                 yield {"tool_calls": [{"function": {"name": "internal__search_conversation",
                       "arguments": {"query": "이름"}}}]}
             else:
-                result = json.loads(history[-1]["content"])
+                result = json.loads(history[-1].text)
                 assert result["total_matches"] == 1
                 yield {"content": result["matches"][0]["snippet"]}
 

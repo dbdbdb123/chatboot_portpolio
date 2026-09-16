@@ -4,7 +4,8 @@ import json
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from backend.constants.enums import MessageRole
+from langchain_core.messages import ToolMessage
+from langchain_core.tools import BaseTool, StructuredTool
 from backend.dataclass.mcp import MCPTool
 from backend.schemas.images import ImageAttachment
 from backend.mcp.interface import MCPToolCaller
@@ -22,7 +23,7 @@ class ToolExecution:
     """
 
     activity: ToolActivity
-    message: dict[str, Any]
+    message: ToolMessage
 
 
 class ToolRunner(Protocol):
@@ -85,13 +86,15 @@ class ToolExecutor:
         후속 추론용 메시지를 만든다. MCP 실패 상태는 요약에 기록하고 예외는 전파한다.
         입력 이력이나 도구 색인을 직접 변경하지 않으며 재시도하지 않는다.
         """
+        # ChatOllama는 공급자 원본을 LangChain 표준 ToolCall(name/args/id)로 정규화한다.
+        # 이전 테스트 대역과의 점진적 전환을 위해 Ollama 원본 function 형식도 함께 읽는다.
         function = call.get("function", {})
-        qualified_name = str(function.get("name", ""))
+        qualified_name = str(call.get("name") or function.get("name", ""))
         # 모델이 임의의 함수명을 만들어도 등록된 도구 외에는 실행하지 않는다.
         tool = tool_index.get(qualified_name)
         if tool is None:
             raise ValueError(f"model requested unknown tool: {qualified_name}")
-        arguments = function.get("arguments", {})
+        arguments = call.get("args", function.get("arguments", {}))
         if isinstance(arguments, str):
             arguments = json.loads(arguments)
         if not isinstance(arguments, dict):
@@ -106,9 +109,39 @@ class ToolExecutor:
         )
         # 구조화 결과가 없으면 MCP의 일반 콘텐츠 블록을 모델에 전달한다.
         payload = result.structured_content or {"content": result.content}
-        message = {
-            "role": MessageRole.TOOL,
-            "tool_name": qualified_name,
-            "content": json.dumps(payload, ensure_ascii=False),
-        }
+        message = ToolMessage(
+            content=json.dumps(payload, ensure_ascii=False),
+            tool_call_id=str(call.get("id") or qualified_name),
+            name=qualified_name,
+            status="error" if result.is_error else "success",
+        )
         return ToolExecution(activity=activity, message=message)
+
+
+def build_langchain_tools(
+    tools: list[MCPTool], runner: ToolRunner, image: ImageAttachment | None,
+) -> list[BaseTool]:
+    """정책 적용이 끝난 도구 정의를 실행 가능한 LangChain ``StructuredTool``로 만든다.
+
+    ChatService의 기존 수동 실행 루프는 UI 활동 정보를 만들기 위해 유지하지만, 모델에는
+    동일한 실행 경계를 가진 BaseTool을 바인딩한다. 이후 LangChain agent로 전환할 때도
+    이 목록을 그대로 사용할 수 있다.
+    """
+    tool_index = {tool.qualified_name: tool for tool in tools}
+    converted: list[BaseTool] = []
+    for definition in tools:
+        async def invoke(_definition=definition, **arguments):
+            execution = await runner.execute({
+                "name": _definition.qualified_name,
+                "args": arguments,
+                "id": f"direct-{_definition.qualified_name}",
+            }, tool_index, image)
+            return execution.message.text
+
+        converted.append(StructuredTool.from_function(
+            coroutine=invoke,
+            name=definition.qualified_name,
+            description=definition.description,
+            args_schema=definition.input_schema,
+        ))
+    return converted

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 import os
+import logging
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -13,13 +14,15 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.api.routes import router
 from backend.constants.app import APP_NAME, APP_VERSION
+from backend.constants.environment import ENV_REDIS_URL
 from backend.constants.paths import PROJECT_ROOT, UI_DIRECTORY
 from backend.dataclass.settings import Settings
-from backend.mcp.stdio_gateway import ConfiguredMCPGateway
+from backend.mcp.langchain_gateway import LangChainMCPGateway
 from backend.ollama import OllamaClient
 from backend.services.chat import ChatService
 from backend.services.rag import RagService, RagStore
 from backend.services.tool_policy import OCRToolPolicy
+from backend.services.history import create_redis_history_store
 from backend.services.tools import ToolExecutor
 from backend.tools.calculator import CalculatorTool
 from backend.tools.composite import CompositeToolClient
@@ -28,6 +31,8 @@ from backend.tools.registry import INTERNAL_SERVER, InternalToolRegistry
 from backend.tools.conversation import SearchConversationTool
 from backend.tools.knowledge import DocumentStore, ReadKnowledgeTool, SearchKnowledgeTool
 from backend.schemas import ChatMessage
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -39,10 +44,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     knowledge = DocumentStore.from_files(PROJECT_ROOT, ["README.md", "docs/DEVELOPMENT.md"])
     ollama = OllamaClient(settings.ollama_base_url, settings.request_timeout_seconds,
                           options=settings.generation)
-    mcp = ConfiguredMCPGateway(settings.mcp_servers)
+    mcp = LangChainMCPGateway(settings.mcp_servers)
     app.state.settings = settings
     app.state.ollama = ollama
     app.state.mcp = mcp
+    app.state.history_store = None
+
+    # Redis는 선택 기능이다. REDIS_URL이 없으면 기존 무상태 채팅을 그대로 유지한다.
+    # URL이 설정됐지만 연결할 수 없는 경우에도 모델 채팅은 실행하고 기록 기능만 비활성화한다.
+    redis_url = os.environ.get(ENV_REDIS_URL)
+    if redis_url:
+        history_store = create_redis_history_store(redis_url)
+        try:
+            await history_store.ping()
+            app.state.history_store = history_store
+        except Exception:
+            logger.exception("Redis chat history is unavailable")
+            await history_store.close()
     tool_policy = OCRToolPolicy()
     shared_tools = [DateTimeTool(), CalculatorTool(),
                     SearchKnowledgeTool(knowledge), ReadKnowledgeTool(knowledge)]
@@ -81,6 +99,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        if app.state.history_store is not None:
+            await app.state.history_store.close()
         await app.state.rag_service.close()
         await rag_model.close()
         # 네트워크/서브프로세스 리소스가 예외 상황에서도 닫히도록 보장한다.

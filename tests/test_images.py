@@ -106,16 +106,17 @@ async def test_qwen_selects_ocr_only_when_needed(think, ocr):
         async def stream_chat(self, model, history, tools, actual_think):
             self.rounds += 1
             assert actual_think is think
-            assert history[1]["images"] == [img.data_base64]
-            assert img.data_base64 not in json.dumps(tools)
-            assert "data_base64" not in json.dumps(tools)
+            assert history[1].content[1]["image_url"].endswith(img.data_base64)
+            schemas = json.dumps([tool.get_input_jsonschema() for tool in tools])
+            assert img.data_base64 not in schemas
+            assert "data_base64" not in schemas
             if ocr and self.rounds == 1:
                 yield {
                     "tool_calls": [{"function": {"name": "ocr__inspect_document", "arguments": {}}}]
                 }
             else:
                 if ocr:
-                    assert "invoice 123" in history[-1]["content"]
+                    assert "invoice 123" in history[-1].text
                 yield {"content": "Invoice 123" if ocr else "A white image"}
 
     mcp = MCP()
@@ -160,7 +161,7 @@ async def test_vision_works_with_tools_off():
     class Ollama:
         async def stream_chat(self, model, history, tools, think):
             assert tools is None
-            assert history[-1]["images"] == [img.data_base64]
+            assert history[-1].content[1]["image_url"].endswith(img.data_base64)
             yield {"content": "white image"}
 
     mcp = MCP()

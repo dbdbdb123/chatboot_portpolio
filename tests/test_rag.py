@@ -17,9 +17,9 @@ class Model:
     async def stream_chat(self, model, messages, tools, think):
         self.calls += 1
         assert tools is None
-        prompt = messages[-1]['content']
+        prompt = messages[-1].text
         assert 'QUESTION:' in prompt and 'SOURCE [1]' in prompt
-        assert 'untrusted' in messages[0]['content']
+        assert 'untrusted' in messages[0].text
         yield {'content': '프로젝트 문의는 담당자에게 전달합니다. [1]'}
 
 

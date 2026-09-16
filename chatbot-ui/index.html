@@ -17,6 +17,12 @@
         </svg>
       </div>
 
+      <button type="button" class="new-chat" id="newChat"><span aria-hidden="true">＋</span> 새 대화</button>
+      <section class="history" aria-labelledby="historyTitle">
+        <p class="section-label" id="historyTitle">최근 대화 · 3일 보관</p>
+        <div id="historyList"></div>
+      </section>
+
       <div class="sidebar-footer">
         <button type="button" class="sidebar-link" id="settingsButton"><span aria-hidden="true">⚙</span> 설정</button>
         <button type="button" class="sidebar-link" id="helpButton"><span aria-hidden="true">?</span> 도움말</button>
@@ -29,7 +35,7 @@
         <h1>Mori</h1>
         <span class="model-badge" id="modelBadge">모델 확인 중</span>
         <button class="connection" type="button" aria-label="연결 상태: 로컬 연결됨">
-          <span class="status-dot"></span> 로컬 연결됨 <span class="chevron">⌄</span>
+          <span class="status-dot"></span> 로컬 연결됨 <span class="chevron"></span>
         </button>
       </header>
 
@@ -80,7 +86,6 @@
     <pre id="documentPreview" hidden></pre>
     <button id="closeDocuments" type="button">닫기</button>
   </dialog>
-  <script src="constants.js"></script>
-  <script src="app.js"></script>
+  <script type="module" src="js/app.js"></script>
 </body>
 </html>

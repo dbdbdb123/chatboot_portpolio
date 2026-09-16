@@ -9,10 +9,30 @@ import uuid
 from contextlib import aclosing
 
 import httpx
+from langchain_core.documents import Document
+from langchain_core.messages import AIMessageChunk, HumanMessage, SystemMessage
+from langchain_core.retrievers import BaseRetriever
 
 from backend.schemas import ChatMessage, ChatResponse
 from backend.services.rag_store import RagStore
 from backend.services.pdf_text import extract_pdf
+
+
+class MoriRetriever(BaseRetriever):
+    """기존 하이브리드 Qdrant 검색을 LangChain ``BaseRetriever``로 노출한다."""
+
+    service: "RagService"
+
+    async def _aget_relevant_documents(self, query: str) -> list[Document]:
+        rows = await self.service.context(query)
+        return [Document(page_content=row["text"], metadata={
+            "id": row["id"], "name": row["name"],
+            "start_line": row["start"], "end_line": row["end"],
+            "page": row.get("page"),
+        }) for row in rows]
+
+    def _get_relevant_documents(self, query: str) -> list[Document]:
+        raise RuntimeError("MoriRetriever must be invoked asynchronously")
 
 
 def split_document(text):
@@ -172,6 +192,10 @@ class RagService:
             size += len(chunk['text'])
         return selected
 
+    def as_retriever(self) -> MoriRetriever:
+        """문서 검색을 Runnable 체인에서 사용할 LangChain Retriever로 반환한다."""
+        return MoriRetriever(service=self)
+
     async def run(self, messages, use_tools=True, model=None, think=False, image=None):
         async with aclosing(self.stream(messages, use_tools, model, think, image)) as events:
             async for event in events:
@@ -205,14 +229,22 @@ class RagService:
                 + f" | lines {source['start_line']}-{source['end_line']}\n{source['text']}"
                 for source in sources
             )
-            history = [{'role': 'system', 'content': system}, {'role': 'user', 'content':
-                f"QUESTION:\n{query}\n\nSOURCES:\n{source_text}\n\nANSWER:"}]
+            history = [SystemMessage(content=system), HumanMessage(content=(
+                f"QUESTION:\n{query}\n\nSOURCES:\n{source_text}\n\nANSWER:"
+            ))]
             answer = ''
             async with aclosing(self.model.stream_chat(selected_model, history, None, think)) as chunks:
                 async for chunk in chunks:
-                    if chunk.get('tool_calls'):
+                    chunk_calls = (
+                        chunk.tool_calls if isinstance(chunk, AIMessageChunk)
+                        else chunk.get('tool_calls') or []
+                    )
+                    if chunk_calls:
                         raise RuntimeError('RAG answer requested unavailable tools')
-                    answer += chunk.get('content') or ''
+                    answer += (
+                        chunk.text if isinstance(chunk, AIMessageChunk)
+                        else str(chunk.get('content') or '')
+                    )
             if not answer.strip():
                 raise RuntimeError('문서 답변이 비어 있습니다.')
             if any(int(number) not in range(1, len(hits) + 1)

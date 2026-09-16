@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Self
+from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -31,6 +32,7 @@ class ChatRequest(BaseModel):
     messages는 클라이언트가 보낸 대화 이력이며 공통 최대 개수 제한을 적용한다.
     use_tools는 도구 사용, think는 모델 추론 모드를 선택하고 model 생략 시
     서비스의 기본 모델을 사용한다. image는 현재 요청에 포함할 단일 첨부다.
+    session_id가 있으면 정상 완료된 사용자 질문과 모델 답변을 해당 Redis 세션에 저장한다.
     첨부가 있으면 마지막 메시지는 사용자 역할이어야 한다.
     이 모델은 대화 저장이나 요청 모델의 별도 허용 목록 검증을 수행하지 않는다.
     """
@@ -41,6 +43,8 @@ class ChatRequest(BaseModel):
     think: bool = False
     model: str | None = None
     image: ImageAttachment | None = None
+    # 세션 저장을 사용하는 요청만 UUID를 전달한다. 생략하면 기존 무상태 채팅으로 동작한다.
+    session_id: UUID | None = None
 
     @model_validator(mode="after")
     def image_requires_user(self) -> Self:

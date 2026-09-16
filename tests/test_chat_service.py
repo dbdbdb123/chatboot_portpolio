@@ -58,11 +58,11 @@ async def test_follow_up_history_reaches_model_without_tools():
     """앞선 사용자 정보와 모델 답변이 다음 추론 입력까지 도달하는지 확인한다."""
     class RecordingModel:
         async def stream_chat(self, model, messages, tools=None, think=False):
-            assert messages[0]["role"] == "system"
-            assert messages[1:] == [
-                {"role": "user", "content": "내 이름은 민수야"},
-                {"role": "assistant", "content": "반가워요, 민수님"},
-                {"role": "user", "content": "내 이름이 뭐야?"},
+            assert messages[0].type == "system"
+            assert [(message.type, message.text) for message in messages[1:]] == [
+                ("human", "내 이름은 민수야"),
+                ("ai", "반가워요, 민수님"),
+                ("human", "내 이름이 뭐야?"),
             ]
             assert tools is None
             yield {"content": "민수님입니다."}
@@ -182,4 +182,4 @@ async def test_executor_accepts_call_only_client():
         None,
     )
     assert result.activity.name == "search"
-    assert "README.md" in result.message["content"]
+    assert "README.md" in result.message.text

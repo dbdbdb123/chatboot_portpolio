@@ -1,43 +1,44 @@
-"""LangChain 프롬프트에 시스템 지침과 현재 대화 이력을 결합한다."""
+"""API 메시지를 LangChain 표준 메시지와 시스템 프롬프트로 결합한다."""
 
-from typing import Any
-
-from langchain_core.messages import ChatMessage as LangChainMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 
 from backend.dataclass.mcp import MCPTool
-from backend.schemas.images import ImageAttachment
-from backend.schemas import ChatMessage
 from backend.prompts.chat import CHAT_PROMPT, build_request_guidance
-
-
+from backend.schemas import ChatMessage
+from backend.schemas.images import ImageAttachment
 
 
 def build_history(
-    messages: list[ChatMessage],
-    tools: list[MCPTool],
-    image: ImageAttachment | None,
-) -> list[dict[str, Any]]:
-    """요청별 이력을 역할·순서 그대로 주입하고 Ollama 입력으로 변환한다.
+    messages: list[ChatMessage], tools: list[MCPTool], image: ImageAttachment | None,
+) -> list[BaseMessage]:
+    """외부 DTO를 역할과 순서를 보존한 LangChain ``BaseMessage`` 목록으로 변환한다.
 
-    대화 본문을 템플릿 문자열로 해석하지 않으며 공유 메모리에 저장하지 않는다.
-    클라이언트는 매 요청에 이전 대화와 현재 사용자 메시지를 함께 보내야 한다.
+    이미지는 마지막 사용자 메시지의 표준 멀티모달 콘텐츠 블록으로 연결한다.
+    API DTO와 원본 배열은 변경하지 않는다.
     """
-    prompt = CHAT_PROMPT.invoke(
-        {
-            "request_guidance": build_request_guidance(tools, image is not None),
-            "history": [
-                LangChainMessage(role=message.role.value, content=message.content)
-                for message in messages
-            ],
-        }
-    )
-    history = [
-        {
-            "role": message.role if isinstance(message, LangChainMessage) else message.type,
-            "content": message.content,
-        }
-        for message in prompt.to_messages()
-    ]
+    history: list[BaseMessage] = []
+    for index, message in enumerate(messages):
+        if message.role == "user":
+            history.append(HumanMessage(content=message.content))
+        elif message.role == "assistant":
+            history.append(AIMessage(content=message.content))
+        elif message.role == "system":
+            history.append(SystemMessage(content=message.content))
+        else:
+            # 외부 API의 과거 tool 메시지에는 호출 ID가 없으므로 안정적인 합성 ID를 부여한다.
+            history.append(ToolMessage(
+                content=message.content, tool_call_id=f"history-tool-{index}"
+            ))
     if image:
-        history[-1]["images"] = [image.data_base64]
-    return history
+        latest = history[-1]
+        latest.content = [
+            {"type": "text", "text": str(latest.content)},
+            {"type": "image_url", "image_url": (
+                f"data:{image.mime_type};base64,{image.data_base64}"
+            )},
+        ]
+    prompt = CHAT_PROMPT.invoke({
+        "request_guidance": build_request_guidance(tools, image is not None),
+        "history": history,
+    })
+    return prompt.to_messages()

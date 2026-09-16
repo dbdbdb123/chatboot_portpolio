@@ -2,7 +2,6 @@ import asyncio
 import json
 from contextlib import aclosing
 
-import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -13,6 +12,7 @@ from backend.api.deps import get_chat_service
 from backend.api.routes import router
 from backend.schemas import ChatMessage, ChatRequest
 from backend.ollama import OllamaClient
+from langchain_core.messages import AIMessageChunk
 from backend.services.chat import ChatService
 from backend.services.tool_policy import OCRToolPolicy
 from backend.services.tools import ToolExecutor
@@ -92,28 +92,18 @@ async def test_tool_stream_returns_activity_then_final_answer():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("ending", ['{"done":true}', '{"error":"failed"}', ""])
-async def test_ollama_ndjson_completion_and_failure(ending):
-    """Ollama 스트림의 정상 완료와 오류·미완료 종료를 구분하는지 확인한다."""
+async def test_ollama_delegates_streaming_to_langchain_chat_model():
+    """Ollama 어댑터가 ChatOllama의 표준 AIMessageChunk 스트림을 그대로 전달한다."""
 
-    def handle(request):
-        assert json.loads(request.content)["stream"] is True
-        return httpx.Response(200, text='{"message":{"content":"안녕"}}\n' + ending + "\n")
+    class Model:
+        async def astream(self, messages):
+            yield AIMessageChunk(content="안녕")
 
     client = OllamaClient("http://test", 1)
-    await client.close()
-    client._client = httpx.AsyncClient(
-        transport=httpx.MockTransport(handle), base_url="http://test"
-    )
+    client._model = lambda model, think: Model()
     try:
-        async with aclosing(client.stream_chat("test", [])) as stream:
-            assert (await anext(stream))["content"] == "안녕"
-            if ending == '{"done":true}':
-                with pytest.raises(StopAsyncIteration):
-                    await anext(stream)
-            else:
-                with pytest.raises(RuntimeError):
-                    await anext(stream)
+        chunks = [chunk async for chunk in client.stream_chat("test", [])]
+        assert [chunk.text for chunk in chunks] == ["안녕"]
     finally:
         await client.close()
 

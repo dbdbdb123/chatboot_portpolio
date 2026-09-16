@@ -146,18 +146,18 @@ async def test_chat_executes_internal_tool_and_respects_disabled_toggle(enabled)
                 assert tools is None
                 yield {"content": "도구 꺼짐"}
             elif self.calls == 1:
-                assert any(t["function"]["name"] == "internal__calculate" for t in tools)
+                assert any(tool.name == "internal__calculate" for tool in tools)
                 yield {"tool_calls": [{"function": {
                     "name": "internal__calculate", "arguments": {"expression": "0.1+0.2"},
                 }}]}
             elif self.calls == 2:
-                assert '"result": "0.3"' in history[-1]["content"]
+                assert '"result": "0.3"' in history[-1].text
                 yield {"content": "잘못된 초안: 0.4입니다"}
             else:
                 assert self.calls == 3
                 assert tools is None
-                assert history[-2]["content"] == "잘못된 초안: 0.4입니다"
-                assert history[-1]["role"] == "system"
+                assert history[-2].text == "잘못된 초안: 0.4입니다"
+                assert history[-1].type == "system"
                 yield {"content": "0.3입니다"}
 
     client = clients()
