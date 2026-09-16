@@ -1,0 +1,25 @@
+// 모든 모듈이 동일한 DOM 인스턴스를 사용하도록 화면 요소 조회를 한곳에서 관리한다.
+export const sidebar = document.querySelector('#sidebar');
+export const menuButton = document.querySelector('#menuButton');
+export const form = document.querySelector('#chatForm');
+export const input = document.querySelector('#messageInput');
+export const conversation = document.querySelector('#conversation');
+export const welcome = document.querySelector('#welcome');
+export const historyList = document.querySelector('#historyList');
+export const toolToggle = document.querySelector('#toolToggle');
+export const knowledgeToggle = document.querySelector('#knowledgeToggle');
+export const thinkingToggle = document.querySelector('#thinkingToggle');
+export const thinkingState = document.querySelector('#thinkingState');
+export const toast = document.querySelector('#toast');
+export const sendButton = document.querySelector('#sendButton');
+export const modelBadge = document.querySelector('#modelBadge');
+export const imageInput = document.querySelector('#imageInput');
+export const attachImage = document.querySelector('#attachImage');
+export const removeImage = document.querySelector('#removeImage');
+export const imageAttachment = document.querySelector('#imageAttachment');
+export const imagePreview = document.querySelector('#imagePreview');
+export const imageName = document.querySelector('#imageName');
+export const documentsDialog = document.querySelector('#documentsDialog');
+export const documentInput = document.querySelector('#documentInput');
+export const documentStatus = document.querySelector('#documentStatus');
+export const documentPreview = document.querySelector('#documentPreview');
