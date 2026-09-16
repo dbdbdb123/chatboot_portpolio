@@ -55,7 +55,7 @@ docker compose up --build -d
 docker compose ps
 ```
 
-로컬 UI는 `http://127.0.0.1:8000`이다. 기본 로컬 설정의 MCP 목록은 비어 있으므로 일반 채팅부터 실행할 수 있다. AWS용 MCP DNS 이름은 로컬 Windows에서 해석되지 않는다.
+기본 Compose는 앱·Ollama·Qdrant와 함께 `redis:7-alpine`을 실행한다. Redis 데이터는 `redis-data` named volume에 AOF 방식으로 유지되고 앱은 내부 주소 `redis://redis:6379/0`을 사용한다. 호스트 디버깅용 포트는 외부에 공개되지 않도록 `127.0.0.1:6379`에만 바인딩한다. 로컬 UI는 `http://127.0.0.1:8000`이다. 기본 로컬 설정의 MCP 목록은 비어 있으므로 일반 채팅부터 실행할 수 있다. AWS용 MCP DNS 이름은 로컬 Windows에서 해석되지 않는다.
 
 ## 4. 설정 계약
 우선순위는 **환경변수 → .setting/settings.json → 코드 기본값**이다. 설정은 앱 시작 때 읽으므로 변경 후 프로세스 또는 컨테이너를 재생성한다. 앱이 임의의 .env 파일을 직접 로드하지는 않는다.
@@ -66,7 +66,7 @@ docker compose ps
 - `MAX_TOOL_ROUNDS` / `max_tool_rounds`: 기본 3. 이후 최종 응답용 추론 기회를 한 번 더 갖는다.
 - `MCP_SERVERS_JSON` / `mcp_servers`: MCP 서버 배열. 환경변수는 전체 목록을 교체한다.
 - `OLLAMA_OPTIONS_JSON` / `generation`: Ollama 상세 생성 옵션(temperature, top_p, top_k, repeat_penalty, presence_penalty 등). 환경변수 JSON으로 세부 항목을 덮어쓸 수 있다.
-- `REDIS_URL`: 선택 설정. 예: `redis://127.0.0.1:6379/0`. 설정하면 세션 API와 서버 측 대화 복원이 활성화된다. 미설정 또는 시작 시 연결 실패면 일반 무상태 채팅은 계속 제공하고 세션 API는 503을 반환한다.
+- `REDIS_URL` / `redis_url`: 선택 설정. 예: `redis://127.0.0.1:6379/0`. 환경변수가 `.setting/settings.json`보다 우선한다. 설정하면 세션 API와 서버 측 대화 복원이 활성화된다. 미설정 또는 시작 시 연결 실패면 일반 무상태 채팅은 계속 제공하고 세션 API는 503을 반환한다. Compose는 환경변수로 내부 주소 `redis://redis:6379/0`을 덮어쓴다.
 - MCP `timeout_seconds`: 기본 15초, AWS 연결은 서버별 30초. 공식 MCP 어댑터의 HTTP 요청 및 스트림 읽기 제한 시간으로 전달한다.
 - Ollama 컨테이너 설정: context 2048, parallel 1, max loaded models 1.
 
@@ -221,7 +221,7 @@ Host: localhost는 서버의 기존 허용 호스트 설정에 맞춘 것이다.
 2. docker save로 이미지를 파일로 내보내고 SSH/SCP로 대상 서버에 전달한다. SSH 키는 문서나 저장소에 포함하지 않는다.
 3. 서버의 기존 이미지에 백업 태그를 지정하고 Compose 파일을 보관한다.
 4. docker load 후 docker compose config --quiet으로 구성을 검증한다.
-5. docker compose up -d --no-deps app으로 앱을 교체한다.
+5. `docker compose up -d app`으로 Redis를 포함한 앱 의존성과 앱을 교체한다. `--no-deps`를 사용하면 새 Redis 서비스가 생성되지 않으므로 사용하지 않는다.
 6. health → mcp/tools → 실제 도구 채팅 순으로 확인한다.
 
 서버 명령 예:
@@ -233,14 +233,14 @@ cp compose.yaml compose.yaml.backup-$stamp
 cp compose.override.yaml compose.override.yaml.backup-$stamp
 docker load -i mori-app-deploy.tar
 docker compose config --quiet
-docker compose up -d --no-deps app
+docker compose up -d app
 docker compose ps
 curl -fsS http://127.0.0.1:8080/api/health
 curl -fsS http://127.0.0.1:8080/api/mcp/tools
 ```
 
 입력 tar 파일명은 실제 전달한 파일명으로 바꾼다. 복구 시 보관한 이미지 태그를 latest로 다시 지정하고 필요 시 동일 시점의 Compose 설정을 복원한 뒤 앱을 재생성한다. 이전 이미지가 HTTP MCP 설정을 지원하는지도 확인한다.
-모델은 mori_ollama-data 볼륨에 저장되어 앱 이미지 교체와 분리된다. 모델 태그만 변경할 때는 대상 모델을 먼저 pull하고 앱의 OLLAMA_MODEL 및 이후 초기화에 쓰일 model-init 태그를 함께 맞춘다.
+모델은 `mori_ollama-data`, Qdrant 문서는 `mori_qdrant-data`, 채팅 기록은 `mori_redis-data` 볼륨에 저장되어 앱 이미지 교체와 분리된다. 모델 태그만 변경할 때는 대상 모델을 먼저 pull하고 앱의 OLLAMA_MODEL 및 이후 초기화에 쓰일 model-init 태그를 함께 맞춘다. `docker compose down`은 이 볼륨을 보존하지만 `docker compose down -v`는 세 볼륨과 저장 데이터를 삭제하므로 운영 환경에서 주의한다.
 
 ## 11. 검증과 장애 대응
 로컬 검증:

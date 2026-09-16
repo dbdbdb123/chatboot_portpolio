@@ -14,7 +14,6 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.api.routes import router
 from backend.constants.app import APP_NAME, APP_VERSION
-from backend.constants.environment import ENV_REDIS_URL
 from backend.constants.paths import PROJECT_ROOT, UI_DIRECTORY
 from backend.dataclass.settings import Settings
 from backend.mcp.langchain_gateway import LangChainMCPGateway
@@ -52,9 +51,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # Redis는 선택 기능이다. REDIS_URL이 없으면 기존 무상태 채팅을 그대로 유지한다.
     # URL이 설정됐지만 연결할 수 없는 경우에도 모델 채팅은 실행하고 기록 기능만 비활성화한다.
-    redis_url = os.environ.get(ENV_REDIS_URL)
-    if redis_url:
-        history_store = create_redis_history_store(redis_url)
+    if settings.redis_url:
+        history_store = create_redis_history_store(settings.redis_url)
         try:
             await history_store.ping()
             app.state.history_store = history_store

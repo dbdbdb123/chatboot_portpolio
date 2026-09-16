@@ -1,6 +1,24 @@
 name: mori
 
 services:
+  # 세션별 채팅 메시지를 보관한다. 애플리케이션이 메시지 생성 시각을 기준으로
+  # 3일이 지난 항목만 정리하며, AOF와 named volume으로 컨테이너 재생성 후에도 유지한다.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redis-data:/data
+    ports:
+      # 로컬 디버깅에는 열어 두되 외부 네트워크에서는 접근할 수 없게 loopback에 바인딩한다.
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
   qdrant:
     image: qdrant/qdrant:v1.17.0
     restart: unless-stopped
@@ -50,9 +68,14 @@ services:
       OLLAMA_MODEL: qwen3.5:2b-q4_K_M
       QDRANT_URL: http://qdrant:6333
       RAG_EMBEDDING_MODEL: embeddinggemma
+      # Compose 내부에서는 서비스 DNS 이름을 사용한다. 호스트용 127.0.0.1 주소와 구분한다.
+      REDIS_URL: redis://redis:6379/0
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
+      # 앱 시작 시 Redis 연결 확인에 실패해 기록 기능이 비활성화되지 않도록 준비 완료를 기다린다.
+      redis:
+        condition: service_healthy
       qdrant:
         condition: service_started
       ollama:
@@ -64,3 +87,5 @@ volumes:
   # compose down 후에도 다운로드한 모델을 유지한다.
   ollama-data:
   qdrant-data:
+  # compose down에서는 유지되고 `docker compose down -v`를 실행할 때만 함께 삭제된다.
+  redis-data:

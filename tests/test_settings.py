@@ -10,6 +10,7 @@ def test_loads_settings_file(tmp_path) -> None:
             {
                 "app_name": "Test Mori",
                 "ollama_model": "test-model",
+                "redis_url": "redis://file-host:6379/2",
                 "max_tool_rounds": 2,
             }
         ),
@@ -20,8 +21,22 @@ def test_loads_settings_file(tmp_path) -> None:
 
     assert settings.app_name == "Test Mori"
     assert settings.ollama_model == "test-model"
+    assert settings.redis_url == "redis://file-host:6379/2"
     assert settings.max_tool_rounds == 2
     assert settings.generation.temperature is None
+
+
+def test_redis_url_environment_overrides_settings_file(tmp_path, monkeypatch) -> None:
+    """Redis 주소도 다른 설정처럼 환경변수가 JSON 파일보다 우선하는지 확인한다."""
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps({"redis_url": "redis://file-host:6379/0"}), encoding="utf-8"
+    )
+    monkeypatch.setenv("REDIS_URL", "redis://environment-host:6379/1")
+
+    settings = Settings.load(path)
+
+    assert settings.redis_url == "redis://environment-host:6379/1"
 
 
 def test_loads_settings_with_generation_file(tmp_path) -> None:
@@ -150,4 +165,3 @@ def test_generation_options_validation() -> None:
     # Extra fields forbidden
     with pytest.raises(ValidationError):
         GenerationOptions.model_validate({"unknown_param": 123})
-

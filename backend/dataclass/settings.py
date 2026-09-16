@@ -21,6 +21,7 @@ from backend.constants.environment import (
     ENV_OLLAMA_BASE_URL,
     ENV_OLLAMA_MODEL,
     ENV_OLLAMA_OPTIONS_JSON,
+    ENV_REDIS_URL,
     ENV_REQUEST_TIMEOUT_SECONDS,
 )
 from backend.constants.paths import SETTINGS_FILE
@@ -106,6 +107,8 @@ class Settings:
     app_name: str = PRODUCT_NAME
     ollama_base_url: str = DEFAULT_OLLAMA_BASE_URL
     ollama_model: str = DEFAULT_MODEL
+    # None이면 기록 기능을 비활성화한다. 환경변수와 설정 파일은 load에서 같은 필드로 합친다.
+    redis_url: str | None = None
     request_timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS
     max_tool_rounds: int = DEFAULT_MAX_TOOL_ROUNDS
     mcp_servers: tuple[MCPServerConfig, ...] = ()
@@ -160,6 +163,10 @@ class Settings:
             ollama_model=os.getenv(
                 ENV_OLLAMA_MODEL,
                 str(file_data.get("ollama_model", DEFAULT_MODEL)),
+            ),
+            redis_url=(
+                os.getenv(ENV_REDIS_URL, str(file_data.get("redis_url") or "")).strip()
+                or None
             ),
             request_timeout_seconds=float(
                 os.getenv(
