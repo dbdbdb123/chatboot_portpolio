@@ -1,34 +1,37 @@
 # Mori 개발 문서
 
-> 현재 소스는 PNG/JPEG/WebP 첨부를 지원합니다. 이미지는 Qwen3.5에 직접 전달하고 OCR 요청에 대한 모델의 도구 선택 시에만 MCP를 실행합니다. 배포 검증 기록은 별도 시점의 기록이며, 최신 요청 계약과 제한은 README의 “이미지 첨부 요청” 절을 참조하세요.
+> 현재 소스는 LangChain 표준 메시지·ChatOllama·StructuredTool·BaseRetriever와 공식 MCP 어댑터를 사용합니다. PNG/JPEG/WebP 이미지는 Qwen3.5에 직접 전달하고 OCR 요청에 대한 모델의 도구 선택 시에만 MCP를 실행합니다. Redis를 설정하면 세션별 대화를 저장하고 메시지 생성 시각 기준 3일 동안 보관합니다.
 
-기준일: 2026-09-04 · 대상: Mori 개발·유지보수 담당자
+기준일: 2026-09-16 · 대상: Mori 개발·유지보수 담당자
 현재 모델: **Qwen3.5 2B Q4_K_M** · Ollama 태그: `qwen3.5:2b-q4_K_M`
 [프로젝트 소개 및 아키텍처](https://app.notion.com/p/3d10800670e981269a75d725ddaa3702) · [저장소](https://github.com/dbdbdb123/chatboot_portpolio)
 
 ## 1. 목적과 구현 범위
-Mori는 Qwen3.5의 자연어 응답과 OCR 관련 MCP 도구 호출을 조율하는 FastAPI 애플리케이션이다. 브라우저가 대화 기록을 전송하면 모델이 직접 답하거나 도구를 선택한다. 백엔드는 허용된 도구의 인자를 검증하고 실행 결과를 모델에 전달한다.
-구현 범위는 채팅 UI, Ollama 연결, SSE, Thinking 선택, stdio/Streamable HTTP MCP 연결, Docker 및 AWS 배포다. 이미지 첨부는 지원하며, 모델 파인튜닝, 자체 OCR 엔진, PDF 첨부, 사용자 인증 및 영구 대화 저장은 현재 구현 범위에 포함되지 않는다.
+Mori는 Qwen3.5의 자연어 응답과 OCR 관련 MCP 도구 호출을 조율하는 FastAPI 애플리케이션이다. 모델·메시지·도구·검색기·대화 기록의 공통 계약은 LangChain을 사용하고, 백엔드는 허용된 도구의 인자를 검증한 뒤 실행 결과를 표준 `ToolMessage`로 모델에 전달한다.
+구현 범위는 채팅 UI, Ollama 연결, SSE, Thinking 선택, stdio/Streamable HTTP MCP 연결, Redis 세션 기록, RAG, Docker 및 AWS 배포다. 이미지와 PDF 지식 등록을 지원한다. 모델 파인튜닝, 자체 OCR 엔진, 사용자 인증과 무기한 대화 보관은 현재 범위에 포함되지 않는다.
 
 ## 2. 구성과 소스 탐색
 - `main.py`: FastAPI 앱 진입점.
-- `backend/app.py`: lifespan에서 Settings·OllamaClient·ConfiguredMCPGateway·ChatService 생성 및 종료. API 등록 후 정적 UI 마운트.
+- `backend/app.py`: lifespan에서 Settings·OllamaClient·LangChainMCPGateway·Redis 기록 저장소·ChatService 생성 및 종료. API 등록 후 정적 UI 마운트.
 - `backend/api/routes.py`: health, 도구 목록, JSON 채팅, SSE 채팅 라우터.
 - `backend/schemas/`: Pydantic 모델과 검증. `chat.py`는 대화·요청·응답, `images.py`는 이미지 첨부, `tools.py`는 도구 실행 요약, `health.py`는 상태 응답을 담당한다.
 - `backend/models.py`, `backend/images.py`: 기존 import 호환을 위한 재노출 모듈.
 - `backend/services/chat.py`: 모델 추론과 도구 실행 순서 조율.
-- `backend/services/context.py`: 첨부 이미지와 시스템 안내를 포함한 모델 입력 구성.
-- `backend/services/tools.py`: 공통 호출 검증, 정책 적용 후 MCP 실행과 결과 변환.
+- `backend/services/context.py`: 외부 요청을 `HumanMessage`·`AIMessage`·`SystemMessage`·`ToolMessage`로 변환하고 첨부 이미지와 시스템 안내를 구성.
+- `backend/services/tools.py`: 공통 호출 검증, 정책 적용, `StructuredTool` 변환과 MCP 결과의 `ToolMessage` 변환.
+- `backend/services/history.py`: Redis 세션 저장소와 LangChain `BaseChatMessageHistory` 구현. 메시지별 3일 보관 정책 담당.
+- `backend/services/rag.py`: Qdrant 검색과 LangChain `BaseRetriever` 구현.
 - `backend/services/tool_policy.py`: 도구 노출·실행 인자 정책 계약과 OCR 첨부 처리 규칙.
 - `backend/services/interfaces.py`: 추론 구현을 교체할 수 있는 최소 스트리밍 계약.
 - `backend/api/streaming.py`: SSE 직렬화, keep-alive, 오류 전달과 취소 정리.
-- `backend/ollama.py`: HTTPX 기반 Ollama REST 및 NDJSON 스트림 처리.
-- `backend/mcp/stdio_gateway.py`: ConfiguredMCPGateway. 파일명과 달리 stdio와 HTTP를 모두 지원하며 기존 StdioMCPGateway 이름을 별칭으로 유지.
+- `backend/ollama.py`: 공식 `langchain-ollama`의 `ChatOllama` 어댑터. 상태 확인용 HTTP 클라이언트만 별도로 유지.
+- `backend/mcp/langchain_gateway.py`: 공식 `MultiServerMCPClient`를 이용한 stdio/Streamable HTTP 게이트웨이. 허용 목록과 입력 검증을 추가 적용.
+- `backend/mcp/stdio_gateway.py`: 이전 import 경로를 위한 호환 재노출 모듈. 직접 MCP 세션 코드는 포함하지 않는다.
 - `backend/mcp/interface.py`: 도구 조회·실행·종료 인터페이스.
 - `backend/mcp/validation.py`: 도구 인자 경량 검증.
 - `backend/dataclass/settings.py`: JSON·환경변수 설정과 MCPServerConfig.
 - `backend/dataclass/mcp.py`: MCPTool·MCPToolResult 및 모델용 도구 형식 변환.
-- `chatbot-ui/`: HTML·CSS·JavaScript. 빌드 도구 없이 FastAPI가 제공.
+- `chatbot-ui/js/`: 앱 초기화, 채팅, 스트림, 세션, 이미지, 문서, DOM/UI 책임별 ES module. 빌드 도구 없이 FastAPI가 제공.
 - `compose.yaml`: 로컬 앱·Ollama·모델 초기화 구성.
 - `compose.mcp.yaml`: 기존 OCR Docker 네트워크와 두 MCP 연결.
 - `tests/`: 채팅·SSE·Thinking·설정·MCP·검증 테스트.
@@ -63,7 +66,8 @@ docker compose ps
 - `MAX_TOOL_ROUNDS` / `max_tool_rounds`: 기본 3. 이후 최종 응답용 추론 기회를 한 번 더 갖는다.
 - `MCP_SERVERS_JSON` / `mcp_servers`: MCP 서버 배열. 환경변수는 전체 목록을 교체한다.
 - `OLLAMA_OPTIONS_JSON` / `generation`: Ollama 상세 생성 옵션(temperature, top_p, top_k, repeat_penalty, presence_penalty 등). 환경변수 JSON으로 세부 항목을 덮어쓸 수 있다.
-- MCP `timeout_seconds`: 기본 15초, AWS 연결은 서버별 30초. 초기화·작업·정리를 포함한 세션을 asyncio.timeout으로 감싼다.
+- `REDIS_URL`: 선택 설정. 예: `redis://127.0.0.1:6379/0`. 설정하면 세션 API와 서버 측 대화 복원이 활성화된다. 미설정 또는 시작 시 연결 실패면 일반 무상태 채팅은 계속 제공하고 세션 API는 503을 반환한다.
+- MCP `timeout_seconds`: 기본 15초, AWS 연결은 서버별 30초. 공식 MCP 어댑터의 HTTP 요청 및 스트림 읽기 제한 시간으로 전달한다.
 - Ollama 컨테이너 설정: context 2048, parallel 1, max loaded models 1.
 
 설정 예:
@@ -100,6 +104,7 @@ mcp_servers는 설정 개수다. MCP 연결 성공이나 모델 파일 존재·�
 ```json
 {
   "messages": [{"role":"user","content":"오늘 OCR 처리 건수 조회해 줘"}],
+  "session_id": "f6a9e6d5-f25d-4e96-9c9c-e4ad920ac771",
   "use_tools": true,
   "think": false,
   "model": null
@@ -107,6 +112,7 @@ mcp_servers는 설정 개수다. MCP 연결 성공이나 모델 파일 존재·�
 ```
 
 - messages: 1~100개. 각 메시지의 role은 system/user/assistant/tool, content는 문자열.
+- session_id: 선택 UUID. 값이 있으면 서버가 Redis의 해당 세션 기록을 복원하고 요청의 마지막 사용자 메시지만 새 입력으로 사용한다. 클라이언트가 함께 보낸 과거 기록은 세션 요청에서 신뢰하지 않는다.
 - use_tools: 기본 true. false이면 MCP 목록 조회와 모델용 도구 제공을 생략한다.
 - think: 기본 false. Ollama의 think 필드로 전달하며 모든 추론 라운드에서 유지한다.
 - model: 생략하거나 null이면 서버 기본 모델을 사용한다. 현재 API는 지정 가능한 모델의 별도 허용 목록을 두지 않는다.
@@ -122,6 +128,19 @@ JSON API 최종 응답 예:
 ```
 
 JSON API는 HTTPX 오류를 503, 도구 인자·값 오류를 400, 처리되는 타임아웃을 504, RuntimeError를 422로 변환한다. 요청 스키마 오류는 FastAPI의 422다. 모든 MCP SDK 예외가 이 분류로 변환되는 것은 아니다.
+
+### 대화 세션 API
+
+Redis가 정상 연결된 경우 다음 API를 제공한다.
+
+| 메서드·경로 | 동작 |
+| --- | --- |
+| `POST /api/chat/sessions` | UUID 기반 빈 세션 생성 |
+| `GET /api/chat/sessions` | 최근 활동 순서로 세션 목록 조회 |
+| `GET /api/chat/sessions/{session_id}` | 만료되지 않은 메시지를 시간순으로 조회 |
+| `DELETE /api/chat/sessions/{session_id}` | 세션 메타데이터와 메시지 즉시 삭제 |
+
+세션이 없거나 삭제된 경우 조회와 세션 채팅 요청은 404를 반환한다. `REDIS_URL`이 없거나 Redis 초기 연결에 실패하면 세션 API는 503을 반환한다. 세션 없이 `/api/chat` 또는 `/api/chat/stream`을 호출하는 기존 무상태 방식은 그대로 사용할 수 있다.
 
 ## 6. SSE 프로토콜
 브라우저는 POST 본문이 필요하므로 EventSource 대신 fetch의 ReadableStream을 사용한다. Content-Type은 text/event-stream이다.
@@ -146,19 +165,21 @@ data: {"server":"ocr","name":"check_ocr_health","arguments":{},"is_error":false}
 스트림 시작 후 오류는 HTTP 상태 변경 대신 error 이벤트로 전달한다. 프런트엔드는 UTF-8와 프레임 분할을 버퍼링하고 done 이전 연결 종료를 실패로 처리한다. 연결 종료 시 pending task와 Ollama 스트림을 정리한다.
 
 ## 7. 모델·MCP 실행 흐름
-1. 모델명 결정 후 use_tools가 true면 허용 도구를 조회한다.
-2. 도구가 있으면 OCR 운영 안내와 현재 UTC 시각을 system 메시지로 추가한다. 상대 날짜는 한국 시간 기준, 최대 31일 조회를 지시한다.
-3. 대화 기록·도구 스키마·think를 Ollama에 전송한다.
-4. NDJSON의 content·thinking·tool_calls를 누적하고 content만 SSE로 보낸다.
-5. 도구 호출이 없으면 done을 반환한다.
-6. 호출이 있으면 server__tool 형태의 이름을 등록 목록에서 확인한다. 문자열 인자는 JSON으로 해석하고 object인지 확인한다.
-7. MCP 게이트웨이가 허용 목록과 캐시된 입력 스키마를 확인한 후 도구를 호출한다.
-8. 실행 요약을 tool 이벤트로 보내고 structured_content 또는 content를 role=tool 메시지로 추가한다.
-9. 도구 결과와 함께 모델을 다시 호출한다.
+1. `session_id`가 있으면 Redis의 `BaseChatMessageHistory` 구현에서 기존 메시지를 읽고 현재 사용자 입력을 마지막에 붙인다.
+2. 모델명 결정 후 use_tools가 true면 허용 도구를 조회한다.
+3. 외부 메시지를 LangChain의 `HumanMessage`·`AIMessage`·`SystemMessage`·`ToolMessage`로 변환한다. 이미지가 있으면 표준 멀티모달 content block으로 구성한다.
+4. 도구가 있으면 OCR 운영 안내와 현재 UTC 시각을 system 메시지로 추가한다. 상대 날짜는 한국 시간 기준, 최대 31일 조회를 지시한다.
+5. 정책 적용이 끝난 도구를 `StructuredTool`로 변환하고 `ChatOllama.bind_tools()`에 전달한다.
+6. `ChatOllama.astream()`이 반환하는 `AIMessageChunk`를 덧셈으로 병합하며 공개할 content만 SSE로 보낸다.
+7. 도구 호출이 없으면 done을 반환하고 세션 요청이면 정상 완료된 사용자·AI 메시지를 Redis에 저장한다.
+8. 호출이 있으면 server__tool 형태의 이름을 등록 목록에서 확인한다. 문자열 인자는 JSON으로 해석하고 object인지 확인한다.
+9. MCP 게이트웨이가 허용 목록과 캐시된 입력 스키마를 확인한 후 공식 LangChain MCP `BaseTool`을 실행한다.
+10. 실행 요약을 tool 이벤트로 보내고 structured content 또는 일반 content를 `ToolMessage`로 추가한다.
+11. 도구 결과와 함께 모델을 다시 호출한다.
 
 기본 설정에서는 최대 3개의 도구 실행 라운드와 1개의 추가 추론 라운드가 가능하다. 마지막 추론에서도 도구를 요청하면 실행하지 않고 오류를 반환한다. 한 라운드에서 여러 도구 호출이 가능하므로 “최대 도구 호출 수 3개”라는 의미는 아니다. 도구는 현재 순차 실행한다.
 
-게이트웨이는 조회·호출마다 짧은 MCP 세션을 생성·초기화·정리한다. 도구 스키마 캐시는 유지하지만 연결 풀 형태의 영구 MCP 세션은 유지하지 않는다. SDK 2.x HTTP 전송은 httpx2 클라이언트를 사용하고 Ollama 요청은 httpx를 사용한다.
+게이트웨이는 `langchain-mcp-adapters`의 `MultiServerMCPClient`를 사용한다. 어댑터 기본 동작에 따라 조회·호출 시 세션을 만들고 정리하며, 애플리케이션은 허용된 도구 정의와 실행용 `BaseTool`만 캐시한다. MCP SDK는 어댑터 호환 범위인 1.x로 제한한다. Ollama 생성 요청은 `langchain-ollama`가 처리하고 `httpx` 직접 사용은 상태 확인에 한정한다.
 
 ## 8. 두 MCP 서버의 데이터 계약
 ### OCR MCP
@@ -176,7 +197,9 @@ data: {"server":"ocr","name":"check_ocr_health","arguments":{},"is_error":false}
 오늘 조회는 한국 시간 00:00부터 현재 시각까지다. 날짜 지시는 프롬프트에 있지만 날짜 해석과 인자 생성은 모델이 수행하므로 실제 요청 범위를 점검한다. 운영 서버가 조회 범위 등 최종 제약을 검증한다. 현재 운영 데이터는 오류 원인·지연 시간·엔진별 필터를 제공하지 않는다.
 
 ## 9. 프런트엔드 상태
-- chatMessages는 현재 탭 메모리의 대화 기록이며 매 요청에 전송한다. 서버는 대화를 영구 저장하지 않는다.
+- Redis 세션이 활성화되면 사이드바에서 최근 세션을 조회·복원한다. 첫 방문에는 세션을 자동 생성한다.
+- 세션 요청은 현재 마지막 사용자 메시지만 전송하고, 과거 문맥은 서버가 Redis에서 복원한다. Redis를 사용할 수 없으면 현재 탭의 `chatMessages` 전체를 보내는 무상태 방식으로 자동 전환한다.
+- 정상 완료된 사용자·AI 메시지만 저장한다. 생성 중 실패한 답변과 thinking 원문, 첨부 원본, 중간 tool 메시지는 영구 기록에 넣지 않는다.
 - Thinking 선택은 localStorage의 mori.think에 저장한다. 기본 OFF이며 저장소 차단 시에도 현재 탭에서 사용한다.
 - 전송 중 send 버튼과 Thinking 버튼을 비활성화한다.
 - 도구 선택은 요청 시점의 aria-pressed 값을 읽는다.
@@ -223,17 +246,19 @@ curl -fsS http://127.0.0.1:8080/api/mcp/tools
 로컬 검증:
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
-node --check chatbot-ui/constants.js
-node --check chatbot-ui/app.js
+Get-ChildItem chatbot-ui\js\*.js | ForEach-Object { node --check $_.FullName }
+.\.venv\Scripts\python.exe -m compileall -q backend
+git diff --check
 ```
 
-현재 소스의 로컬 리팩터링 검증 기록(2026-09-04):
+현재 소스의 LangChain·Redis 전환 검증 기록(2026-09-16):
 
-- OCR 정책 분리 후 `pytest` 58개 통과.
-- Ruff 정적 검사 통과 및 공통 포맷 적용.
-- 상수 분리 시 `constants.js`와 `app.js` JavaScript 문법 검사 통과.
+- `pytest` 179개 통과.
+- Python 전체 compileall 통과.
+- `chatbot-ui/js`의 모든 JavaScript 문법 검사 통과.
+- `git diff --check` 통과.
 - 기존 Starlette/AnyIO 의존성의 폐기 예정 API 경고 1건이 남아 있다.
-- 이 기록은 로컬 검증 결과다. 실제 모델·원격 MCP·AWS 재배포 검증을 대체하지 않는다.
+- 이 기록은 로컬 단위·통합 테스트 결과다. 실제 Ollama 생성, 원격 MCP, Redis 장애 전환과 AWS 재배포 검증을 대체하지 않는다.
 
 이전 배포 시점의 검증 기록(2026-09-04):
 - 자동화 테스트 25개 통과.
@@ -266,6 +291,8 @@ docker logs --tail 100 ocr-pipeline-ops-mcp-1
 - 이미지 첨부는 현재 요청에만 포함된다. 후속 요청에서 같은 이미지를 다시 분석하려면 재첨부해야 한다.
 - API 인증·사용자별 요청 제한·역할 제한은 미구현이다. 현재 공개 데모 수준과 운영 서비스 수준을 구분한다.
 - 장기 대화 요약·토큰 예산 관리·사용자 취소 버튼·재시도 정책은 미구현이다.
+- Redis 메타데이터에는 별도 만료 시간을 두지 않는다. 3일이 지난 메시지는 조회·추가 시 지연 정리되므로 메시지가 모두 만료된 빈 세션은 목록에 남을 수 있다.
+- Redis는 현재 단일 사용자 세션 저장소다. 인증 도입 전에는 세션 UUID를 아는 사용자를 소유자로 간주하므로 공개 운영 환경에서는 사용자 ID 기반 키 분리가 필요하다.
 - 날짜 안내는 프롬프트 수준이다. 결정적인 날짜 범위 생성이 필요하면 별도 서버 로직을 추가한다.
 
 ## 13. 변경 시 점검 기준
@@ -286,15 +313,14 @@ Python 3.12 이상을 기준으로 `Self`, 제네릭 타입 매개변수, `Annot
 uv tool run --from ruff ruff check backend tests main.py
 uv tool run --from ruff ruff format --check backend tests main.py
 .\.venv\Scripts\python.exe -m pytest -q
-node --check chatbot-ui/constants.js
-node --check chatbot-ui/app.js
+Get-ChildItem chatbot-ui\js\*.js | ForEach-Object { node --check $_.FullName }
 ```
 
 ### 공통 상수와 Enum
 
 - `backend/constants/`에서 앱 식별자, 환경변수, 경로, 채팅 제한값, 이미지 제한값을 관리한다.
 - `backend/constants/enums.py`의 `StrEnum`은 메시지 역할, SSE 이벤트, MCP 전송 방식과 서비스 상태를 정의한다. API 문자열 값은 기존과 같다.
-- `chatbot-ui/constants.js`는 UI 제한값과 `Object.freeze`로 고정한 역할·이벤트 선택값을 제공하며 `app.js`보다 먼저 로드한다.
+- `chatbot-ui/js/constants.js`는 UI 제한값과 `Object.freeze`로 고정한 역할·이벤트 선택값을 ES module로 제공한다.
 - 이미지 제한과 SSE 이벤트를 변경할 때에는 Python과 JavaScript 양쪽 계약을 함께 갱신한다. 경로·용량처럼 선택지가 아닌 값은 일반 상수로 유지한다.
 
 ## 15. SOLID 적용 구조와 확장 기준
@@ -309,7 +335,7 @@ node --check chatbot-ui/app.js
 | OCP: 확장에 열림 | 모델·실행기·정책을 주입해 조율 코드를 바꾸지 않고 교체할 수 있다. | 여러 도구 정책을 선택·조합하는 등록 구조는 아직 없다. 별도 정책이 늘어나면 조합 필요성을 검토한다. |
 | LSP: 대체 가능 | `Protocol` 계약에 맞는 대체 모델·실행기·정책으로 대화를 처리하는 테스트가 있다. | 반환 타입뿐 아니라 이벤트 순서, 오류 전달, 취소·자원 정리도 유지해야 한다. 모든 대체 구현에 공통 계약 테스트를 적용한 상태는 아니다. |
 | ISP: 인터페이스 분리 | 조회는 `MCPToolCatalog`, 호출은 `MCPToolCaller`, 수명주기 종료는 `MCPGateway`로 구분한다. | 조회만 필요한 객체에 실행·종료 메서드를 요구하지 않는다. 정책의 노출과 인자 변환은 같은 규칙을 공유하므로 `ToolPolicy`에 함께 둔다. |
-| DIP: 추상화에 의존 | 서비스와 실행기는 `Protocol`에 의존하며, `lifespan`에서 구체 구현을 생성한다. | 서비스 내부에서 `OllamaClient`, `ConfiguredMCPGateway`, `ToolExecutor`, `OCRToolPolicy`를 새로 생성하지 않는다. |
+| DIP: 추상화에 의존 | 서비스와 실행기는 `Protocol`에 의존하며, `lifespan`에서 구체 구현을 생성한다. | 서비스 내부에서 `OllamaClient`, `LangChainMCPGateway`, `ToolExecutor`, `OCRToolPolicy`를 새로 생성하지 않는다. |
 
 ### 15.2 책임과 인터페이스
 
@@ -321,29 +347,35 @@ node --check chatbot-ui/app.js
 | `backend/services/tools.py`의 `ToolExecutor` | 등록된 도구명·객체 인자 확인, 정책 인자 적용, MCP 실행과 결과 변환 | `MCPToolCaller`, `ToolPolicy` |
 | `backend/services/tool_policy.py`의 `OCRToolPolicy` | OCR 노출 여부, 모델용 빈 스키마, 실제 첨부 주입, 공개용 인자 구성 | `ToolPolicy`의 두 메서드 구현 |
 | `backend/api/streaming.py`의 `chat_events` | SSE 직렬화, keep-alive, 사용자용 오류, 대기 작업 취소 | `ChatService`의 이벤트 스트림 |
-| `backend/mcp/stdio_gateway.py`의 `ConfiguredMCPGateway` | 전송 연결, 허용 목록·입력 스키마 검증, SDK 결과 변환 | 조회·호출·종료 계약을 모두 구현 |
+| `backend/mcp/langchain_gateway.py`의 `LangChainMCPGateway` | 공식 어댑터 연결 설정, 허용 목록·입력 스키마 검증, LangChain 도구 결과 변환 | 조회·호출·종료 계약을 모두 구현 |
+| `backend/services/history.py`의 `RedisSessionMessageHistory` | 세션별 표준 메시지 조회·추가·삭제 | `BaseChatMessageHistory` 비동기 계약 |
+| `backend/services/rag.py`의 `MoriRetriever` | Qdrant 검색 결과를 출처 메타데이터가 있는 문서로 변환 | `BaseRetriever` 비동기 계약 |
 
 `ChatModel.stream_chat`은 종료 가능한 비동기 생성기를 반환한다. `ToolRunner.execute`는 `ToolExecution`을 반환하며, 여기에는 UI용 `activity`와 후속 추론용 `message`가 포함된다. `ToolPolicy.prepare_arguments`가 반환하는 `ToolArguments`는 서버 전달용 `execution`과 UI 공개용 `display`를 구분한다.
 
 ### 15.3 앱 조립과 동일 정책 주입
 
-현재 조립은 `backend/app.py`의 `lifespan`에 있다. 아래 코드는 이미 생성된 `ollama`, `mcp`, `settings`를 사용한 해당 부분이다.
+현재 조립은 `backend/app.py`의 `lifespan`에 있다. 외부 MCP와 내부 도구를 하나의 `CompositeToolClient`로 합친 뒤 같은 정책을 조회와 실행 경로에 주입한다.
 
 ```python
 tool_policy = OCRToolPolicy()
-chat_service = ChatService(
+tools = CompositeToolClient(
+    {INTERNAL_SERVER: InternalToolRegistry(shared_tools)},
+    fallback=mcp,
+)
+app.state.chat_service = ChatService(
     ollama,
-    mcp,
+    tools,
     settings.ollama_model,
     settings.max_tool_rounds,
-    tool_executor=ToolExecutor(mcp, tool_policy),
+    tool_executor=ToolExecutor(tools, tool_policy),
     tool_policy=tool_policy,
 )
 ```
 
 `tool_executor`와 `tool_policy`는 필수 키워드 인자다. 같은 정책 인스턴스를 서비스와 실행기에 전달해야 도구 노출 규칙과 실행 인자 규칙이 일치한다. 현재 생성자가 동일 인스턴스 여부를 강제하지 않으므로 앱 조립부와 테스트에서 이 관계를 유지한다.
 
-`ChatService`는 MCP의 조회만 사용한다. 실제 호출은 주입된 실행기를 통해 수행한다. 앱 종료 시 연결 정리는 조립부의 책임이며, 모델 스트림과 요청별 MCP 세션의 정리는 각 처리 계층에서 수행한다.
+`ChatService`는 합성 도구 카탈로그의 조회만 사용한다. 실제 호출은 주입된 실행기를 통해 수행한다. 앱 종료 시 연결 정리는 조립부의 책임이며, 모델 스트림과 요청별 MCP 세션의 정리는 각 처리 계층에서 수행한다.
 
 ### 15.4 OCR 정책의 처리 계약
 
@@ -376,5 +408,48 @@ chat_service = ChatService(
 | `tests/test_streaming.py` | 응답 조각 순서, SSE 오류 처리, keep-alive, 소비자 종료 시 작업 정리 |
 | `tests/test_thinking.py` | 일반·스트리밍 요청과 도구 호출 이후 Thinking 선택 유지 |
 | `tests/test_constants.py` | Enum 도입 후 기존 문자열 입력·직렬화 호환성 |
+| `tests/test_chat_history.py` | 세션 격리, 메시지별 3일 정리, `BaseChatMessageHistory` 비동기 계약 |
+| `tests/test_langchain_mcp_gateway.py` | 공식 MCP 어댑터 연결 매핑, 허용 목록, 스키마 검증, 결과 변환 |
 
-현재 58개 테스트 통과는 위 구현과 테스트 시나리오에 대한 근거다. 모든 구현체의 예외·취소 계약, 실제 원격 서비스 장애, 장시간 운영까지 검증했다는 의미는 아니다. 새 구현체에는 해당 경로의 계약 테스트를 적용하고, 배포 전에 실제 Ollama·MCP 연결을 별도로 확인한다.
+현재 179개 테스트 통과는 위 구현과 테스트 시나리오에 대한 근거다. 모든 구현체의 예외·취소 계약, 실제 원격 서비스 장애, 장시간 운영까지 검증했다는 의미는 아니다. 새 구현체에는 해당 경로의 계약 테스트를 적용하고, 배포 전에 실제 Ollama·MCP·Redis 연결을 별도로 확인한다.
+
+## 16. LangChain 통합 기준과 버전
+
+### 16.1 사용 버전
+
+`pyproject.toml`의 호환 범위와 2026-09-16 로컬 설치 확인값은 다음과 같다.
+
+| 패키지 | 프로젝트 제약 | 확인 버전 | 사용 목적 |
+| --- | --- | --- | --- |
+| `langchain-core` | `==1.6.3` | 1.6.3 | 메시지, 도구, 검색기, 대화 기록의 표준 계약 |
+| `langchain-ollama` | `>=1.1,<1.2` | 1.1.0 | `ChatOllama` 일반·스트리밍 추론과 도구 바인딩 |
+| `langchain-mcp-adapters` | `>=0.3,<0.4` | 0.3.1 | `MultiServerMCPClient`와 MCP 도구의 `BaseTool` 변환 |
+| `mcp` | `>=1.24,<2` | 1.30.0 | 공식 어댑터와 호환되는 MCP SDK |
+| `redis` | `>=6,<7` | 6.4.0 | 비동기 세션 기록 저장 |
+
+MCP 2.x는 현재 적용한 `langchain-mcp-adapters` 0.3 계열과 API가 맞지 않으므로 범위를 1.x로 제한한다. 의존성 버전을 올릴 때에는 import 성공만 확인하지 말고 MCP 도구 조회·호출 테스트와 실제 서버 연결을 함께 확인한다.
+
+### 16.2 프레임워크에 맡기는 책임
+
+- 모델 요청·응답과 스트림 조각 처리는 `ChatOllama.ainvoke()`·`astream()`에 맡긴다. 애플리케이션이 Ollama NDJSON을 직접 파싱하지 않는다.
+- 모델 문맥에는 LangChain `BaseMessage` 계열만 사용한다. 공급자 원본 사전은 테스트 대역 호환 경계에서만 일시적으로 허용한다.
+- 모델에 제공하는 함수는 `BaseTool`/`StructuredTool`로 구성하고 `bind_tools()`로 연결한다.
+- 외부 MCP 연결과 도구 변환은 `MultiServerMCPClient`에 맡긴다. 프로젝트 게이트웨이는 허용 목록, `server__tool` 이름, 추가 입력 검증을 담당한다.
+- RAG 검색 표면은 `BaseRetriever`, 세션 기록 표면은 `BaseChatMessageHistory`로 제공한다.
+
+### 16.3 애플리케이션에 남기는 책임
+
+`ChatService`의 반복 제어를 곧바로 범용 agent로 교체하지 않는다. Mori에는 SSE의 `model`·`round`·`tool`·`delta`·`done` 이벤트, 날짜 답변 검증, 계산 답변 재검토, OCR 첨부 비공개 처리처럼 제품 고유의 실행 순서가 있기 때문이다. 현재 구조는 LangChain 모델·메시지·도구 계약 위에 이 정책을 명시적으로 조율한다.
+
+같은 이유로 `RunnableWithMessageHistory`가 요청 전체를 자동 저장하게 하지 않는다. 도구 실행 도중의 메시지나 실패한 부분 답변까지 기록될 수 있으므로, 라우터가 정상 완료 시점에 사용자 질문과 최종 AI 답변만 `BaseChatMessageHistory.aadd_messages()`로 저장한다. 이 선택을 변경하려면 JSON 응답과 SSE 응답의 저장 시점, 중복 저장, 실패 취소 동작을 먼저 동일하게 설계해야 한다.
+
+### 16.4 Redis 저장 구조와 3일 보관
+
+- 세션 메타데이터: `mori:chat:session:{id}:metadata` Hash.
+- 세션 메시지: `mori:chat:session:{id}:messages` Sorted Set. score는 UTC Unix 생성 시각이다.
+- 세션 목록: `mori:chat:sessions` Sorted Set. score는 마지막 활동 시각이다.
+- 메시지를 추가하거나 세션을 읽을 때 `ZREMRANGEBYSCORE`로 현재 시각에서 3일 이전 메시지만 제거한다.
+- 세션 키 전체 TTL을 갱신하는 방식이 아니므로 새 메시지가 들어와도 오래된 메시지가 함께 연장되지 않는다.
+- Redis에는 사용자·최종 assistant 텍스트만 저장한다. RAG 지식 문서, thinking 원문, 이미지 Base64와 MCP 실행 원문을 대화 기록에 섞지 않는다.
+
+RAG 저장소와 대화 기록 저장소는 목적이 다르다. Qdrant RAG는 재사용할 지식 문서를 의미 기반으로 검색하기 위한 것이고 Redis 기록은 한 세션의 시간순 대화를 복원하기 위한 것이다. 사용자 대화를 RAG 컬렉션에 자동 적재하면 다른 세션 정보가 검색되거나 개인정보가 장기 보관될 수 있으므로 현재는 분리한다.
