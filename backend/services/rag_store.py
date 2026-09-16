@@ -51,7 +51,10 @@ class RagStore:
         self.initialize()
         points, offset = [], None
         while True:
-            body = {'limit': 100, 'with_payload': ['name', 'chunks', 'model', 'revision', 'digest'],
+            # index_version도 함께 읽어야 배포용 재색인이 이미 완료된 문서를 다시 처리하지 않는다.
+            body = {'limit': 100, 'with_payload': [
+                        'name', 'chunks', 'model', 'revision', 'digest', 'index_version',
+                    ],
                     'with_vector': False}
             if offset is not None:
                 body['offset'] = offset
@@ -63,7 +66,8 @@ class RagStore:
 
     def documents(self):
         return sorted([dict(id=point['id'], name=point['payload']['name'],
-                            chunks=point['payload']['chunks'], model=point['payload']['model'])
+                            chunks=point['payload']['chunks'], model=point['payload']['model'],
+                            index_version=point['payload'].get('index_version'))
                        for point in self.manifests()], key=lambda row: row['name'])
 
     def metadata(self, identifier):
@@ -71,7 +75,7 @@ class RagStore:
         for point in manifests:
             if point['id'] == identifier:
                 data = point['payload']
-                return (data['digest'], data['model']), len(manifests)
+                return (data['digest'], data['model'], data.get('index_version')), len(manifests)
         return None, len(manifests)
 
     def read(self, identifier):
@@ -99,7 +103,7 @@ class RagStore:
             # Only active revisions are searchable; failed cleanup leaves invisible old points.
             logger.warning('Qdrant inactive chunk cleanup failed')
 
-    def save(self, identifier, name, content, digest, model, chunks):
+    def save(self, identifier, name, content, digest, model, chunks, index_version=None):
         from backend.services.rag import terms
         self.initialize()
         revision = hashlib.sha256((identifier + digest + model).encode()).hexdigest()
@@ -108,6 +112,7 @@ class RagStore:
                    'payload': {'id': identifier, 'name': name, 'revision': revision,
                                'text': chunk['text'], 'start': chunk['start'], 'end': chunk['end'],
                                'page': chunk.get('page'), 'ordinal': index,
+                               'section': chunk.get('section', ''),
                                'keywords': sorted(terms(chunk['text']))}}
                   for index, chunk in enumerate(chunks)]
         for offset in range(0, len(points), 32):
@@ -117,7 +122,8 @@ class RagStore:
         self.request('PUT', f'/collections/{self.docs}/points?wait=true', json={'points': [{
             'id': identifier, 'vector': [1.0],
             'payload': {'name': name, 'content': content, 'digest': digest, 'model': model,
-                        'revision': revision, 'chunks': len(chunks)},
+                        'revision': revision, 'chunks': len(chunks),
+                        'index_version': index_version},
         }]})
         self.cleanup({'must': [{'key': 'id', 'match': {'value': identifier}}],
                       'must_not': [{'key': 'revision', 'match': {'value': revision}}]})

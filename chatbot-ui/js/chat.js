@@ -2,7 +2,10 @@ import { MessageRole, StreamEvent } from './constants.js';
 import { conversation, input, knowledgeToggle, sendButton, thinkingToggle, toolToggle, welcome } from './dom.js';
 import { clearImage, getSelectedImage, isReadingImage } from './image.js';
 import { readChatStream } from './stream.js';
-import { addLoadingIndicator, addMessage, addToolActivity, autoResize, now, setSending, showModel } from './ui.js';
+import {
+  addLoadingIndicator, addMessage, addToolActivity, autoResize, now,
+  renderMessageContent, setSending, showModel,
+} from './ui.js';
 
 // 서버가 무상태이므로 현재 탭의 전체 대화 기록을 매 요청에 함께 보낸다.
 let chatMessages = [];
@@ -70,7 +73,13 @@ export async function handleChatSubmit(event) {
         conversation.appendChild(loadingIndicator);
         loadingIndicator.lastChild.textContent = '응답을 작성하고 있어요…';
       }
-      currentMessage.body.appendChild(document.createTextNode(data.text));
+      // RAG는 최종 답변과 출처를 한 이벤트로 보내므로 즉시 두 영역으로 분리한다.
+      // 일반 채팅의 토큰 스트림은 기존처럼 텍스트 노드만 이어 붙인다.
+      if (data.text.includes('\n\n검색한 문서:\n')) {
+        renderMessageContent(currentMessage, data.text);
+      } else {
+        currentMessage.body.appendChild(document.createTextNode(data.text));
+      }
       loadingIndicator.scrollIntoView({ block: 'end' });
     }
     if (type === StreamEvent.TOOL) {
@@ -81,6 +90,7 @@ export async function handleChatSubmit(event) {
     if (type === StreamEvent.DONE) {
       showModel(data.model);
       if (!currentMessage) currentMessage = addMessage(data.message.content, MessageRole.ASSISTANT);
+      else renderMessageContent(currentMessage, data.message.content);
       currentMessage.meta.textContent = now();
       chatMessages.push(data.message);
       clearImage();

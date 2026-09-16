@@ -4,11 +4,12 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from langchain_core.messages import AIMessage
 
 from backend.api.deps import get_chat_service
 from backend.api.routes import router
 from backend.schemas import ChatMessage
-from backend.services.rag import RagService, RagStore, split_document
+from backend.services.rag import RagService, RagStore, display_document_name, split_document
 
 
 class Model:
@@ -21,6 +22,10 @@ class Model:
         assert 'QUESTION:' in prompt and 'SOURCE [1]' in prompt
         assert 'untrusted' in messages[0].text
         yield {'content': '프로젝트 문의는 담당자에게 전달합니다. [1]'}
+
+    async def chat(self, model, messages, tools, think):
+        assert tools is None and think is False
+        return AIMessage(content='유지호 이력서 주인 이름')
 
 
 
@@ -118,6 +123,16 @@ async def test_register_update_deduplicate_persist_delete(rag):
 
 
 @pytest.mark.asyncio
+async def test_reindex_existing_document_from_previous_chunk_version(rag):
+    registered = await rag.register('legacy.md', '# 제목\n기존 내용')
+    fake = rag.store.http._transport.handler
+    fake.collections['mori_documents'][registered['id']]['payload'].pop('index_version')
+    results = await rag.reindex_existing()
+    assert [item['name'] for item in results] == ['legacy.md']
+    assert rag.store.documents()[0]['index_version'] == 'structure-v2'
+
+
+@pytest.mark.asyncio
 async def test_embedding_failure_preserves_previous_document(rag):
     old = await rag.register('guide.txt', '문의 담당자')
     async def fail(texts):
@@ -178,6 +193,11 @@ async def test_semantic_retrieval_and_source_answer(rag):
     assert rag.model.calls == 1
 
 
+def test_display_document_name_hides_upload_identifier():
+    name = '5a98cbfc-5036-4933-a41d-c85c0eb916c8_유지호__Python_Backend__OCRAI_Portfolio.pdf'
+    assert display_document_name(name) == '유지호 · Python Backend · OCRAI Portfolio.pdf'
+
+
 @pytest.mark.asyncio
 async def test_no_relevant_results_never_calls_model(rag):
     await rag.register('guide.md', '문의 담당자')
@@ -190,10 +210,29 @@ def test_chunks_are_bounded_and_keep_line_ranges():
     text = 'header\n' + '가' * 1400 + '\nlast line'
     chunks = split_document(text)
     assert len(chunks) >= 3
-    assert all(len(chunk['text']) <= 500 for chunk in chunks)
+    assert all(len(chunk['text']) <= 700 for chunk in chunks)
     assert chunks[0]['start'] == 1
     assert chunks[-1]['end'] == 3
     assert all(1 <= chunk['start'] <= chunk['end'] <= 3 for chunk in chunks)
+
+
+def test_structure_chunks_preserve_heading_path_and_paragraphs():
+    chunks = split_document('# 경력\n\n## Mori\nLangChain과 Redis를 적용했습니다.\n\n## OCR\nOpenCV를 사용했습니다.')
+    assert [chunk['section'] for chunk in chunks] == [
+        '경력', '경력 > Mori', '경력 > OCR',
+    ]
+    assert chunks[1]['text'].startswith('## Mori')
+
+
+@pytest.mark.asyncio
+async def test_colloquial_query_is_rewritten_but_original_remains_fallback(rag):
+    await rag.register('resume.md', '# 인적 사항\n이름은 유지호입니다.')
+    messages = [ChatMessage(role='user', content='이 이력서의 주인은?')]
+    rewritten = await rag.rewrite_query(messages, 'test')
+    assert rewritten == '유지호 이력서 주인 이름'
+    hits = await rag.context(messages[-1].content, [messages[-1].content, rewritten])
+    assert hits
+    assert len(hits) <= 3
 
 
 @pytest.mark.asyncio

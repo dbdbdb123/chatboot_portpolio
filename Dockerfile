@@ -16,6 +16,8 @@ RUN pip install --no-cache-dir .
 COPY main.py ./main.py
 COPY chatbot-ui ./chatbot-ui
 COPY docs/DEVELOPMENT.md ./docs/DEVELOPMENT.md
+# 배포 후 기존 Qdrant 문서를 최신 청킹 버전으로 재색인하는 일회성 관리 명령을 포함한다.
+COPY scripts ./scripts
 COPY .setting ./.setting
 
 # 애플리케이션은 권한이 제한된 사용자로 실행한다.
