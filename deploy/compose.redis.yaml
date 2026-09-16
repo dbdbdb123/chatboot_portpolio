@@ -1,0 +1,25 @@
+# AWS의 기존 compose.yaml·compose.override.yaml·compose.rag.yaml에 추가하는 Redis 구성.
+# Redis 포트는 EC2 외부에 공개하지 않고 mori_default 네트워크의 앱만 접근한다.
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  app:
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  redis-data:

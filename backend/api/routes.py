@@ -18,7 +18,7 @@ from backend.constants.app import API_PREFIX
 from backend.constants.chat import SSE_MEDIA_TYPE
 from backend.constants.enums import HealthStatus, MessageRole
 from backend.mcp.validation import ToolValidationError
-from backend.schemas import ChatRequest, ChatResponse, HealthResponse
+from backend.schemas import ChatMessage, ChatRequest, ChatResponse, HealthResponse
 from backend.schemas.history import ChatSessionMessages, ChatSessionSummary
 from backend.services.chat import ChatService
 from backend.services.history import RedisChatHistoryStore

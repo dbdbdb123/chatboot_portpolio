@@ -6,6 +6,8 @@ from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.messages import AIMessage, HumanMessage
 
 from backend.schemas import ChatMessage
+from backend.schemas import ChatRequest
+from backend.api.routes import _hydrate_session_messages
 from backend.services.history import RedisChatHistoryStore
 
 
@@ -141,4 +143,26 @@ async def test_session_history_implements_langchain_async_contract():
     restored = await history.aget_messages()
     assert [(message.type, message.text) for message in restored] == [
         ("human", "질문"), ("ai", "답변"),
+    ]
+
+
+async def test_second_session_request_restores_saved_messages_before_current_question():
+    """첫 답변 저장 후 두 번째 요청에서 Redis 문맥과 현재 질문을 안전하게 합친다."""
+    store = RedisChatHistoryStore(FakeRedis())
+    session = await store.create_session()
+    await store.history(session.id).aadd_messages([
+        HumanMessage(content="오늘은 몇일이야?"),
+        AIMessage(content="2026년 9월 16일은 수요일입니다."),
+    ])
+    payload = ChatRequest(
+        session_id=session.id,
+        messages=[ChatMessage(role="user", content="오늘은 몇일이라고?")],
+    )
+
+    restored = await _hydrate_session_messages(store, payload)
+
+    assert [(message.role, message.content) for message in restored.messages] == [
+        ("user", "오늘은 몇일이야?"),
+        ("assistant", "2026년 9월 16일은 수요일입니다."),
+        ("user", "오늘은 몇일이라고?"),
     ]
