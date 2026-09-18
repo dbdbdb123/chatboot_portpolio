@@ -1,6 +1,6 @@
 # AWS RAG·PDF 배포 준비
 
-현재 AWS 구성에는 기존 RAG 오버레이와 함께 `compose.redis.yaml`을 추가한다. Redis는 외부 포트를 열지 않고 앱 내부 네트워크에서만 사용하며 `redis-data` 볼륨에 AOF로 대화 기록을 유지한다.
+현재 AWS 구성에는 기존 RAG 오버레이와 함께 `compose.redis.yaml`을 추가한다. Redis는 외부 포트를 열지 않고 앱 내부 네트워크에서만 사용하며 `redis-data` 볼륨에 AOF로 대화 기록을 유지한다. Langfuse 추적은 `compose.langfuse.yaml`이 서버의 `.env.langfuse`를 읽어 앱에 전달한다. 이 환경파일은 서버에서 권한 600으로 관리하고 저장소에 커밋하지 않는다.
 
 ## 대상 서버 확인
 
@@ -18,11 +18,11 @@ SSH 키와 인증 값은 배포 파일이나 Notion에 복사하지 않는다.
 
 ```bash
 cd /home/ubuntu/mori
-docker compose -f compose.yaml -f compose.override.yaml -f compose.rag.yaml -f compose.redis.yaml config --quiet
+docker compose -f compose.yaml -f compose.override.yaml -f compose.rag.yaml -f compose.redis.yaml -f compose.langfuse.yaml config --quiet
 docker compose -f compose.yaml -f compose.override.yaml -f compose.rag.yaml pull qdrant
 docker compose -f compose.yaml -f compose.override.yaml -f compose.rag.yaml up -d qdrant
 docker compose exec -T ollama ollama pull embeddinggemma
-docker compose -f compose.yaml -f compose.override.yaml -f compose.rag.yaml -f compose.redis.yaml up -d redis app
+docker compose -f compose.yaml -f compose.override.yaml -f compose.rag.yaml -f compose.redis.yaml -f compose.langfuse.yaml up -d redis app
 curl -fsS http://127.0.0.1:8080/api/health
 curl -fsS http://127.0.0.1:8080/api/knowledge/documents
 curl -fsS http://127.0.0.1:8080/api/mcp/tools
