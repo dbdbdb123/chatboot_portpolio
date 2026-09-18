@@ -70,6 +70,10 @@ services:
       RAG_EMBEDDING_MODEL: embeddinggemma
       # Compose 내부에서는 서비스 DNS 이름을 사용한다. 호스트용 127.0.0.1 주소와 구분한다.
       REDIS_URL: redis://redis:6379/0
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-https://us.cloud.langfuse.com}
+      LANGFUSE_TRACING_ENVIRONMENT: ${LANGFUSE_TRACING_ENVIRONMENT:-development}
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:

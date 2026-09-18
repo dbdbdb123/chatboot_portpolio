@@ -11,6 +11,8 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from langfuse import get_client
+from langfuse.langchain import CallbackHandler
 
 from backend.api.routes import router
 from backend.constants.app import APP_NAME, APP_VERSION
@@ -61,11 +63,12 @@ def create_chat_service(settings, ollama, mcp) -> ChatService:
     )
 
 
-def create_rag_service(settings) -> tuple[OllamaClient, RagService]:
+def create_rag_service(settings, callbacks=None) -> tuple[OllamaClient, RagService]:
     """Build the dedicated RAG model and persistent document service."""
     model = OllamaClient(
         settings.ollama_base_url, settings.request_timeout_seconds,
         options=settings.generation.model_copy(update={"num_ctx": 8192, "num_predict": 768}),
+        callbacks=callbacks,
     )
     service = RagService(
         RagStore(os.environ.get("QDRANT_URL", "http://127.0.0.1:6333"),
@@ -83,12 +86,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if any(server.name == INTERNAL_SERVER for server in settings.mcp_servers):
         raise ValueError("MCP server name 'internal' is reserved for built-in tools")
     async with AsyncExitStack() as resources:
+        langfuse_callbacks = []
+        public_key = os.environ.get("LANGFUSE_PUBLIC_KEY")
+        secret_key = os.environ.get("LANGFUSE_SECRET_KEY")
+        if public_key and secret_key:
+            langfuse = get_client()
+            langfuse_callbacks.append(CallbackHandler())
+            resources.callback(langfuse.shutdown)
+            logger.info("Langfuse tracing is enabled")
+        elif public_key or secret_key:
+            logger.warning(
+                "Langfuse tracing is disabled because both public and secret keys are required"
+            )
+
         ollama = OllamaClient(settings.ollama_base_url, settings.request_timeout_seconds,
-                              options=settings.generation)
+                              options=settings.generation, callbacks=langfuse_callbacks)
         resources.push_async_callback(ollama.close)
         mcp = LangChainMCPGateway(settings.mcp_servers)
         resources.push_async_callback(mcp.close)
-        rag_model, rag_service = create_rag_service(settings)
+        rag_model, rag_service = create_rag_service(settings, langfuse_callbacks)
         resources.push_async_callback(rag_model.close)
         resources.push_async_callback(rag_service.close)
 

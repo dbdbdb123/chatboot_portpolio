@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
 from langchain_ollama import ChatOllama
 
@@ -20,10 +21,12 @@ class OllamaClient:
     """
 
     def __init__(self, base_url: str, timeout_seconds: float,
-                 options: GenerationOptions | None = None) -> None:
+                 options: GenerationOptions | None = None,
+                 callbacks: list[BaseCallbackHandler] | None = None) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout_seconds = timeout_seconds
         self._options = (options or GenerationOptions()).model_copy(deep=True)
+        self._callbacks = list(callbacks or [])
         self._health_client = httpx.AsyncClient(
             base_url=self._base_url, timeout=timeout_seconds
         )
@@ -58,7 +61,10 @@ class OllamaClient:
         runnable = self._model(model, think)
         if tools:
             runnable = runnable.bind_tools(tools)
-        return await runnable.ainvoke(messages)
+        config = self._run_config()
+        if config is None:
+            return await runnable.ainvoke(messages)
+        return await runnable.ainvoke(messages, config=config)
 
     async def stream_chat(
         self, model: str, messages: list[BaseMessage],
@@ -68,8 +74,23 @@ class OllamaClient:
         runnable = self._model(model, think)
         if tools:
             runnable = runnable.bind_tools(tools)
-        async for chunk in runnable.astream(messages):
-            yield chunk
+        config = self._run_config()
+        if config is None:
+            async for chunk in runnable.astream(messages):
+                yield chunk
+        else:
+            async for chunk in runnable.astream(messages, config=config):
+                yield chunk
+
+    def _run_config(self) -> dict[str, Any] | None:
+        """LangChain 관측 콜백이 설정된 경우 요청별 실행 구성으로 전달한다."""
+        if not self._callbacks:
+            return None
+        return {
+            "callbacks": self._callbacks,
+            "run_name": "mori-ollama-chat",
+            "tags": ["mori", "ollama"],
+        }
 
     async def close(self) -> None:
         """상태 확인에 사용하는 HTTP 연결 풀을 닫는다."""

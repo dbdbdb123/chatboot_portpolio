@@ -67,6 +67,8 @@ docker compose ps
 - `MCP_SERVERS_JSON` / `mcp_servers`: MCP 서버 배열. 환경변수는 전체 목록을 교체한다.
 - `OLLAMA_OPTIONS_JSON` / `generation`: Ollama 상세 생성 옵션(temperature, top_p, top_k, repeat_penalty, presence_penalty 등). 환경변수 JSON으로 세부 항목을 덮어쓸 수 있다.
 - `REDIS_URL` / `redis_url`: 선택 설정. 예: `redis://127.0.0.1:6379/0`. 환경변수가 `.setting/settings.json`보다 우선한다. 설정하면 세션 API와 서버 측 대화 복원이 활성화된다. 미설정 또는 시작 시 연결 실패면 일반 무상태 채팅은 계속 제공하고 세션 API는 503을 반환한다. Compose는 환경변수로 내부 주소 `redis://redis:6379/0`을 덮어쓴다.
+- `LANGFUSE_SECRET_KEY`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_BASE_URL`: 선택 설정. 두 키가 모두 있으면 일반 채팅과 RAG의 LangChain/Ollama 호출을 Langfuse로 추적한다. Compose에서는 저장소 루트의 `.env`를 읽으며, 실제 키는 커밋하지 않고 `.env.example` 형식을 사용한다.
+- `LANGFUSE_TRACING_ENVIRONMENT`: Langfuse 환경 구분값. Compose 기본값은 `development`다.
 - MCP `timeout_seconds`: 기본 15초, AWS 연결은 서버별 30초. 공식 MCP 어댑터의 HTTP 요청 및 스트림 읽기 제한 시간으로 전달한다.
 - Ollama 컨테이너 설정: context 2048, parallel 1, max loaded models 1.
 
