@@ -3,10 +3,7 @@ import {
   attachImage, conversation, input, knowledgeToggle, modelBadge, removeImage,
   sendButton, thinkingState, thinkingToggle, toast, toolToggle,
 } from './dom.js';
-
-// 서버가 RAG 답변에 붙이는 신뢰 가능한 출처 메타데이터의 시작 표식이다.
-// 모델 본문과 출처를 화면에서 분리하되, Redis에 저장되는 문자열 형식은 유지한다.
-const SOURCE_SECTION_MARKER = '\n\n검색한 문서:\n';
+import { parseMessageContent } from './message-content.js';
 
 /** Thinking 선택 상태를 버튼의 접근성 속성과 ON/OFF 표시에 반영한다. */
 export function setThinking(enabled) {
@@ -56,14 +53,8 @@ export function now() {
 }
 
 /** RAG 답변 문자열을 본문과 접을 수 있는 검색 근거 카드로 나누어 렌더링한다. */
-export function renderMessageContent(message, text) {
-  const markerIndex = text.indexOf(SOURCE_SECTION_MARKER);
-  const answer = markerIndex === -1 ? text : text.slice(0, markerIndex);
-  const sourceLines = markerIndex === -1 ? [] : text
-    .slice(markerIndex + SOURCE_SECTION_MARKER.length)
-    .split('\n')
-    .map(line => line.trim())
-    .filter(Boolean);
+export function renderMessageContent(message, text, structuredSources) {
+  const { answer, sources: sourceLines } = parseMessageContent(text, structuredSources);
 
   message.body.textContent = answer;
   message.sources?.remove();
