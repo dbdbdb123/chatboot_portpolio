@@ -7,7 +7,7 @@ from contextlib import aclosing
 import json
 from typing import Any
 
-from langchain_core.messages import AIMessage, AIMessageChunk, SystemMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, SystemMessage, ToolMessage
 
 from backend.constants.enums import MessageRole, StreamEvent
 from backend.prompts.chat import CALCULATION_REVIEW_PROMPT
@@ -162,6 +162,13 @@ class ChatService:
             return
         calculation_used = False
         check_dates = is_date_conversation(messages)
+        if hasattr(self._ollama, "stream_agent"):
+            async for event in self._stream_agent(
+                selected_model, history, bound_tools, runner, tool_index,
+                image, think, check_dates,
+            ):
+                yield event
+            return
         # 마지막 1회는 도구 결과를 읽은 모델이 최종 답변을 만들 기회다.
         for round_index in range(self._max_tool_rounds + 1):
             yield {"event": StreamEvent.ROUND, "data": {"index": round_index}}
@@ -215,3 +222,95 @@ class ChatService:
                 if call.get("name") == "internal__calculate":
                     calculation_used = True
         raise RuntimeError("maximum tool rounds exceeded")
+
+    async def _stream_agent(
+        self,
+        selected_model: str,
+        history: list[BaseMessage],
+        bound_tools,
+        runner: ToolRunner,
+        tool_index,
+        image: ImageAttachment | None,
+        think: bool,
+        check_dates: bool,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Adapt a LangChain ``create_agent`` graph to Mori's existing SSE contract."""
+        activities: list[ToolActivity] = []
+        pending = []
+
+        def record(execution):
+            activities.append(execution.activity)
+            pending.append(execution.activity)
+
+        agent_tools = build_langchain_tools(
+            list(tool_index.values()), runner, image, on_execution=record,
+        )
+        final_message: AIMessage | None = None
+        completed_history = list(history)
+        seen_steps: set[int] = set()
+        calculation_used = False
+
+        async for mode, chunk in self._ollama.stream_agent(
+            selected_model,
+            history,
+            agent_tools if bound_tools else [],
+            think,
+            self._max_tool_rounds + 1,
+        ):
+            while pending:
+                activity = pending.pop(0)
+                if activity.server == "internal" and activity.name == "calculate":
+                    calculation_used = True
+                yield {"event": StreamEvent.TOOL, "data": activity.model_dump()}
+
+            if mode == "messages":
+                message, metadata = chunk
+                step = metadata.get("langgraph_step")
+                if metadata.get("langgraph_node") == "model" and isinstance(step, int):
+                    if step not in seen_steps:
+                        seen_steps.add(step)
+                        yield {"event": StreamEvent.ROUND, "data": {"index": len(seen_steps) - 1}}
+                if isinstance(message, AIMessageChunk):
+                    text = message.text
+                    if text and not calculation_used and not check_dates:
+                        yield {"event": StreamEvent.DELTA, "data": {"text": text}}
+                continue
+
+            if mode != "updates":
+                continue
+            for update in chunk.values():
+                if not isinstance(update, dict):
+                    continue
+                for message in update.get("messages", []):
+                    if isinstance(message, (AIMessage, ToolMessage)):
+                        completed_history.append(message)
+                    if isinstance(message, AIMessage) and not message.tool_calls:
+                        final_message = message
+
+        while pending:
+            activity = pending.pop(0)
+            if activity.server == "internal" and activity.name == "calculate":
+                calculation_used = True
+            yield {"event": StreamEvent.TOOL, "data": activity.model_dump()}
+
+        if final_message is None:
+            raise RuntimeError("agent ended without a final response")
+        if calculation_used:
+            context = (
+                completed_history[:-1]
+                if completed_history[-1] is final_message
+                else completed_history
+            )
+            final_message = await self._review_calculation(
+                selected_model, context, final_message, think,
+            )
+        if check_dates:
+            final_message = AIMessage(content=validate_date_answer(final_message.text))
+        if calculation_used or check_dates:
+            yield {"event": StreamEvent.DELTA, "data": {"text": final_message.text}}
+        result = ChatResponse(
+            message=ChatMessage(role=MessageRole.ASSISTANT, content=final_message.text),
+            model=selected_model,
+            tools=activities,
+        )
+        yield {"event": StreamEvent.DONE, "data": result.model_dump()}

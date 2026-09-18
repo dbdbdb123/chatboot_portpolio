@@ -6,6 +6,8 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
+from langchain.agents import create_agent
+from langchain.agents.middleware import ModelCallLimitMiddleware
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
 from langchain_ollama import ChatOllama
@@ -81,6 +83,39 @@ class OllamaClient:
         else:
             async for chunk in runnable.astream(messages, config=config):
                 yield chunk
+
+    async def stream_agent(
+        self,
+        model: str,
+        messages: list[BaseMessage],
+        tools: list[Any],
+        think: bool,
+        max_model_calls: int,
+    ) -> AsyncIterator[tuple[str, Any]]:
+        """Run the standard LangChain agent graph and expose its native streams.
+
+        ``create_agent`` owns the model/tool loop.  Mori keeps transport-specific SSE
+        formatting outside the graph and uses the official call-limit middleware to
+        retain the existing bounded-execution guarantee.
+        """
+        agent = create_agent(
+            model=self._model(model, think),
+            tools=tools,
+            middleware=[ModelCallLimitMiddleware(
+                run_limit=max_model_calls,
+                exit_behavior="error",
+            )],
+            name="mori-chat-agent",
+        )
+        config = self._run_config()
+        kwargs = {
+            "input": {"messages": messages},
+            "stream_mode": ["messages", "updates"],
+        }
+        if config is not None:
+            kwargs["config"] = config
+        async for item in agent.astream(**kwargs):
+            yield item
 
     def _run_config(self) -> dict[str, Any] | None:
         """LangChain 관측 콜백이 설정된 경우 요청별 실행 구성으로 전달한다."""

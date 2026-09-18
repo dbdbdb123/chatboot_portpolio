@@ -171,13 +171,12 @@ data: {"server":"ocr","name":"check_ocr_health","arguments":{},"is_error":false}
 2. 모델명 결정 후 use_tools가 true면 허용 도구를 조회한다.
 3. 외부 메시지를 LangChain의 `HumanMessage`·`AIMessage`·`SystemMessage`·`ToolMessage`로 변환한다. 이미지가 있으면 표준 멀티모달 content block으로 구성한다.
 4. 도구가 있으면 OCR 운영 안내와 현재 UTC 시각을 system 메시지로 추가한다. 상대 날짜는 한국 시간 기준, 최대 31일 조회를 지시한다.
-5. 정책 적용이 끝난 도구를 `StructuredTool`로 변환하고 `ChatOllama.bind_tools()`에 전달한다.
-6. `ChatOllama.astream()`이 반환하는 `AIMessageChunk`를 덧셈으로 병합하며 공개할 content만 SSE로 보낸다.
-7. 도구 호출이 없으면 done을 반환하고 세션 요청이면 정상 완료된 사용자·AI 메시지를 Redis에 저장한다.
-8. 호출이 있으면 server__tool 형태의 이름을 등록 목록에서 확인한다. 문자열 인자는 JSON으로 해석하고 object인지 확인한다.
-9. MCP 게이트웨이가 허용 목록과 캐시된 입력 스키마를 확인한 후 공식 LangChain MCP `BaseTool`을 실행한다.
-10. 실행 요약을 tool 이벤트로 보내고 structured content 또는 일반 content를 `ToolMessage`로 추가한다.
-11. 도구 결과와 함께 모델을 다시 호출한다.
+5. 정책 적용이 끝난 도구를 `StructuredTool`로 변환하고 LangChain `create_agent()`에 전달한다.
+6. Agent 그래프가 모델 판단 → 도구 실행 → `ToolMessage` 추가 → 모델 재호출 루프를 담당한다.
+7. `ModelCallLimitMiddleware`가 요청별 최대 모델 호출 횟수를 제한한다.
+8. Agent의 `messages`·`updates` 스트림을 기존 SSE `round`·`tool`·`delta`·`done` 이벤트로 변환한다.
+9. 도구 실행 전 `server__tool` 이름, 정책 인자와 MCP 허용 목록·입력 스키마를 검증한다.
+10. 도구 호출이 없는 최종 `AIMessage`를 반환하고, 정상 완료된 사용자·AI 메시지만 Redis에 저장한다.
 
 기본 설정에서는 최대 3개의 도구 실행 라운드와 1개의 추가 추론 라운드가 가능하다. 마지막 추론에서도 도구를 요청하면 실행하지 않고 오류를 반환한다. 한 라운드에서 여러 도구 호출이 가능하므로 “최대 도구 호출 수 3개”라는 의미는 아니다. 도구는 현재 순차 실행한다.
 
@@ -436,13 +435,14 @@ MCP 2.x는 현재 적용한 `langchain-mcp-adapters` 0.3 계열과 API가 맞지
 
 - 모델 요청·응답과 스트림 조각 처리는 `ChatOllama.ainvoke()`·`astream()`에 맡긴다. 애플리케이션이 Ollama NDJSON을 직접 파싱하지 않는다.
 - 모델 문맥에는 LangChain `BaseMessage` 계열만 사용한다. 공급자 원본 사전은 테스트 대역 호환 경계에서만 일시적으로 허용한다.
-- 모델에 제공하는 함수는 `BaseTool`/`StructuredTool`로 구성하고 `bind_tools()`로 연결한다.
+- 모델에 제공하는 함수는 `BaseTool`/`StructuredTool`로 구성하고 `create_agent()`의 도구로 전달한다.
+- 모델·도구 반복 실행과 종료 판단은 Agent 그래프에, 최대 호출 제한은 `ModelCallLimitMiddleware`에 맡긴다.
 - 외부 MCP 연결과 도구 변환은 `MultiServerMCPClient`에 맡긴다. 프로젝트 게이트웨이는 허용 목록, `server__tool` 이름, 추가 입력 검증을 담당한다.
 - RAG 검색 표면은 `BaseRetriever`, 세션 기록 표면은 `BaseChatMessageHistory`로 제공한다.
 
 ### 16.3 애플리케이션에 남기는 책임
 
-`ChatService`의 반복 제어를 곧바로 범용 agent로 교체하지 않는다. Mori에는 SSE의 `model`·`round`·`tool`·`delta`·`done` 이벤트, 날짜 답변 검증, 계산 답변 재검토, OCR 첨부 비공개 처리처럼 제품 고유의 실행 순서가 있기 때문이다. 현재 구조는 LangChain 모델·메시지·도구 계약 위에 이 정책을 명시적으로 조율한다.
+운영 모델의 반복 제어는 LangChain `create_agent()`가 담당한다. `ChatService`에는 SSE의 `model`·`round`·`tool`·`delta`·`done` 변환, 날짜 답변 검증, 계산 답변 재검토, OCR 첨부 비공개 처리처럼 제품 고유의 정책만 남긴다. 단순 테스트 대역은 `stream_agent`를 구현하지 않아도 되도록 기존 수동 루프를 호환 경계로 유지하지만 실제 `OllamaClient` 실행에는 사용하지 않는다.
 
 같은 이유로 `RunnableWithMessageHistory`가 요청 전체를 자동 저장하게 하지 않는다. 도구 실행 도중의 메시지나 실패한 부분 답변까지 기록될 수 있으므로, 라우터가 정상 완료 시점에 사용자 질문과 최종 AI 답변만 `BaseChatMessageHistory.aadd_messages()`로 저장한다. 이 선택을 변경하려면 JSON 응답과 SSE 응답의 저장 시점, 중복 저장, 실패 취소 동작을 먼저 동일하게 설계해야 한다.
 

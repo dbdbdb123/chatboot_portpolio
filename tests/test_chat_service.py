@@ -1,8 +1,8 @@
 import pytest
-from langchain_core.messages import AIMessageChunk, ToolMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 
 from backend.dataclass.mcp import MCPTool, MCPToolResult
-from backend.schemas import ChatMessage, ToolActivity
+from backend.schemas import ChatMessage, ChatResponse, ToolActivity
 from backend.services.chat import ChatService
 from backend.services.tool_policy import OCRToolPolicy
 from backend.services.tools import ToolExecution, ToolExecutor
@@ -52,6 +52,41 @@ async def test_executes_tool_and_returns_final_answer() -> None:
     result = await service.run([ChatMessage(role="user", content="인증 문서 찾아줘")], True, None)
     assert result.message.content == "README에서 찾았습니다."
     assert result.tools[0].name == "search"
+
+
+@pytest.mark.asyncio
+async def test_agent_capable_model_uses_langchain_agent_stream() -> None:
+    """운영 모델은 수동 루프 대신 create_agent 스트림 계약을 사용한다."""
+
+    class AgentModel:
+        async def stream_chat(self, *args, **kwargs):
+            pytest.fail("manual bind_tools loop must not be used")
+            yield
+
+        async def stream_agent(self, model, messages, tools, think, max_model_calls):
+            assert model == "test"
+            assert tools[0].name == "docs__search"
+            assert max_model_calls == 4
+            yield "messages", (
+                AIMessageChunk(content="완료했습니다."),
+                {"langgraph_node": "model", "langgraph_step": 1},
+            )
+            yield "updates", {
+                "model": {"messages": [AIMessage(content="완료했습니다.")]},
+            }
+
+    mcp = FakeMCP()
+    policy = OCRToolPolicy()
+    service = ChatService(
+        AgentModel(), mcp, "test", 3,
+        tool_executor=ToolExecutor(mcp, policy), tool_policy=policy,
+    )
+    events = [event async for event in service.stream(
+        [ChatMessage(role="user", content="문서 찾아줘")], True, None,
+    )]
+    result = ChatResponse.model_validate(events[-1]["data"])
+    assert result.message.content == "완료했습니다."
+    assert any(event["event"] == "round" for event in events)
 
 
 @pytest.mark.asyncio

@@ -2,7 +2,7 @@
 
 import json
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool, StructuredTool
@@ -115,12 +115,13 @@ class ToolExecutor:
 
 def build_langchain_tools(
     tools: list[MCPTool], runner: ToolRunner, image: ImageAttachment | None,
+    on_execution: Callable[[ToolExecution], None] | None = None,
 ) -> list[BaseTool]:
     """정책 적용이 끝난 도구 정의를 실행 가능한 LangChain ``StructuredTool``로 만든다.
 
-    ChatService의 기존 수동 실행 루프는 UI 활동 정보를 만들기 위해 유지하지만, 모델에는
-    동일한 실행 경계를 가진 BaseTool을 바인딩한다. 이후 LangChain agent로 전환할 때도
-    이 목록을 그대로 사용할 수 있다.
+    운영 경로에서는 이 목록을 ``create_agent``에 전달한다. ``on_execution``은 Agent가
+    실행한 도구를 기존 SSE tool 이벤트와 공개 활동 기록으로 연결하는 어댑터이며,
+    실행 정책이나 LangChain의 도구 루프를 대체하지 않는다.
     """
     tool_index = {tool.qualified_name: tool for tool in tools}
     converted: list[BaseTool] = []
@@ -131,6 +132,8 @@ def build_langchain_tools(
                 "args": arguments,
                 "id": f"direct-{_definition.qualified_name}",
             }, tool_index, image)
+            if on_execution is not None:
+                on_execution(execution)
             return execution.message.text
 
         converted.append(StructuredTool.from_function(
