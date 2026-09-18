@@ -7,7 +7,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from backend.schemas import ChatMessage
 from backend.schemas import ChatRequest
-from backend.api.routes import _hydrate_session_messages
+from backend.api.chat_routes import _hydrate_session_messages
 from backend.services.history import RedisChatHistoryStore
 
 
@@ -98,17 +98,13 @@ async def test_only_messages_older_than_three_days_are_removed():
     store = RedisChatHistoryStore(FakeRedis(), now=lambda: current[0])
     session = await store.create_session()
 
-    await store.append_exchange(
-        session.id,
-        ChatMessage(role="user", content="첫 질문"),
-        ChatMessage(role="assistant", content="첫 답변"),
-    )
+    await store.history(session.id).aadd_messages([
+        HumanMessage(content="첫 질문"), AIMessage(content="첫 답변"),
+    ])
     current[0] += timedelta(days=2)
-    await store.append_exchange(
-        session.id,
-        ChatMessage(role="user", content="최근 질문"),
-        ChatMessage(role="assistant", content="최근 답변"),
-    )
+    await store.history(session.id).aadd_messages([
+        HumanMessage(content="최근 질문"), AIMessage(content="최근 답변"),
+    ])
 
     # 첫 교환은 4일이 지나 제거되지만 두 번째 교환은 2일밖에 지나지 않아 남아야 한다.
     current[0] += timedelta(days=2)
@@ -121,10 +117,9 @@ async def test_sessions_keep_their_messages_separate():
     store = RedisChatHistoryStore(FakeRedis())
     first = await store.create_session()
     second = await store.create_session()
-    await store.append_exchange(
-        first.id, ChatMessage(role="user", content="A"),
-        ChatMessage(role="assistant", content="A 답변"),
-    )
+    await store.history(first.id).aadd_messages([
+        HumanMessage(content="A"), AIMessage(content="A 답변"),
+    ])
 
     assert (await store.get_session(first.id)).session.message_count == 2
     assert (await store.get_session(second.id)).session.message_count == 0

@@ -5,7 +5,7 @@ from contextlib import aclosing
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from test_chat_service import FakeMCP, FakeOllama
+from fakes import FakeMCP, FakeOllama
 
 from backend.api import streaming
 from backend.api.deps import get_chat_service
@@ -48,7 +48,7 @@ async def test_delta_arrives_before_generation_finishes_and_close_cancels():
     class SlowOllama:
         async def stream_chat(self, *args):
             try:
-                yield {"content": "서울"}
+                yield AIMessageChunk(content="서울")
                 await asyncio.Event().wait()
             finally:
                 released.set()

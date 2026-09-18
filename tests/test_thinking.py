@@ -2,7 +2,7 @@ import pytest
 from langchain_core.messages import AIMessage, AIMessageChunk
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from test_chat_service import FakeMCP, FakeOllama
+from fakes import FakeMCP, FakeOllama
 
 from backend.api.deps import get_chat_service
 from backend.api.routes import router
@@ -64,7 +64,8 @@ def test_thinking_survives_api_and_tool_rounds(think, endpoint):
     class RecordingOllama(FakeOllama):
         async def stream_chat(self, model, messages, tools=None, think=False):
             choices.append(think)
-            yield await self.chat(model, messages, tools)
+            async for chunk in super().stream_chat(model, messages, tools, think):
+                yield chunk
 
     mcp = FakeMCP()
     service = ChatService(

@@ -86,17 +86,12 @@ class ToolExecutor:
         후속 추론용 메시지를 만든다. MCP 실패 상태는 요약에 기록하고 예외는 전파한다.
         입력 이력이나 도구 색인을 직접 변경하지 않으며 재시도하지 않는다.
         """
-        # ChatOllama는 공급자 원본을 LangChain 표준 ToolCall(name/args/id)로 정규화한다.
-        # 이전 테스트 대역과의 점진적 전환을 위해 Ollama 원본 function 형식도 함께 읽는다.
-        function = call.get("function", {})
-        qualified_name = str(call.get("name") or function.get("name", ""))
+        qualified_name = str(call.get("name", ""))
         # 모델이 임의의 함수명을 만들어도 등록된 도구 외에는 실행하지 않는다.
         tool = tool_index.get(qualified_name)
         if tool is None:
             raise ValueError(f"model requested unknown tool: {qualified_name}")
-        arguments = call.get("args", function.get("arguments", {}))
-        if isinstance(arguments, str):
-            arguments = json.loads(arguments)
+        arguments = call.get("args", {})
         if not isinstance(arguments, dict):
             raise ValueError("tool arguments must be an object")
         prepared = self._policy.prepare_arguments(tool, arguments, image)

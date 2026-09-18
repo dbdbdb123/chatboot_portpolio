@@ -58,6 +58,26 @@ class ChatService:
         self._max_tool_rounds = max_tool_rounds
         self._tool_runner_factory = tool_runner_factory
 
+    async def _review_calculation(
+        self, selected_model: str, history, assistant: AIMessage, think: bool,
+    ) -> AIMessage:
+        """검산 전용 모델 호출을 실행하고 공개 가능한 최종 답변을 반환한다."""
+        review_history = [
+            *history, assistant, SystemMessage(content=CALCULATION_REVIEW_PROMPT),
+        ]
+        reviewed = ""
+        async with aclosing(self._ollama.stream_chat(
+            selected_model, review_history, None, think,
+        )) as chunks:
+            async for chunk in chunks:
+                chunk_calls = chunk.tool_calls
+                if chunk_calls:
+                    raise RuntimeError("calculation review requested unavailable tools")
+                reviewed += chunk.text
+        if not reviewed.strip():
+            raise RuntimeError("calculation review returned an empty answer")
+        return AIMessage(content=reviewed)
+
     async def run(
         self,
         messages: list[ChatMessage],
@@ -115,11 +135,12 @@ class ChatService:
                 if "internal__get_datetime" not in tool_index:
                     answer = "날짜와 요일을 조회하려면 도구 사용을 켜 주세요."
                 else:
-                    execution = await runner.execute({"function": {
+                    execution = await runner.execute({
                         "name": "internal__get_datetime",
-                        "arguments": ({"value": followup.value} if followup.value else
-                                      {"offset_days": followup.offset_days}),
-                    }}, tool_index, image)
+                        "args": ({"value": followup.value} if followup.value else
+                                 {"offset_days": followup.offset_days}),
+                        "id": "date-followup",
+                    }, tool_index, image)
                     activities.append(execution.activity)
                     yield {"event": StreamEvent.TOOL, "data": execution.activity.model_dump()}
                     if execution.activity.is_error:
@@ -144,11 +165,7 @@ class ChatService:
         # 마지막 1회는 도구 결과를 읽은 모델이 최종 답변을 만들 기회다.
         for round_index in range(self._max_tool_rounds + 1):
             yield {"event": StreamEvent.ROUND, "data": {"index": round_index}}
-            # LangChain 메시지 조각은 덧셈으로 콘텐츠·도구 호출 조각·메타데이터가 병합된다.
             assistant_chunk: AIMessageChunk | None = None
-            # 기존 테스트 모델을 순차 마이그레이션할 동안 공급자 사전 조각도 경계에서만 수용한다.
-            legacy_content = ""
-            legacy_calls: list[dict[str, Any]] = []
             async with aclosing(
                 self._ollama.stream_chat(
                     selected_model,
@@ -158,51 +175,22 @@ class ChatService:
                 )
             ) as chunks:
                 async for chunk in chunks:
-                    if isinstance(chunk, AIMessageChunk):
-                        assistant_chunk = chunk if assistant_chunk is None else assistant_chunk + chunk
-                        content = chunk.text
-                    else:
-                        content = str(chunk.get("content") or "")
-                        legacy_content += content
-                        legacy_calls.extend(chunk.get("tool_calls") or [])
+                    assistant_chunk = chunk if assistant_chunk is None else assistant_chunk + chunk
+                    content = chunk.text
                     if content and not calculation_used and not check_dates:
                         yield {"event": StreamEvent.DELTA, "data": {"text": content}}
-            if assistant_chunk is not None:
-                assistant = AIMessage(
-                    content=assistant_chunk.content,
-                    tool_calls=assistant_chunk.tool_calls,
-                    additional_kwargs=assistant_chunk.additional_kwargs,
-                )
-                calls = assistant.tool_calls
-            else:
-                assistant = AIMessage(content=legacy_content)
-                calls = legacy_calls
+            assistant_chunk = assistant_chunk or AIMessageChunk(content="")
+            assistant = AIMessage(
+                content=assistant_chunk.content,
+                tool_calls=assistant_chunk.tool_calls,
+                additional_kwargs=assistant_chunk.additional_kwargs,
+            )
+            calls = assistant.tool_calls
             if not calls:
                 if calculation_used:
-                    # 계산 답변 초안은 공개 전에 별도 모델 호출로 한 번만 검토한다.
-                    review_history = [
-                        *history,
-                        assistant,
-                        SystemMessage(content=CALCULATION_REVIEW_PROMPT),
-                    ]
-                    reviewed = ""
-                    async with aclosing(self._ollama.stream_chat(
-                        selected_model, review_history, None, think,
-                    )) as chunks:
-                        async for chunk in chunks:
-                            chunk_calls = (
-                                chunk.tool_calls if isinstance(chunk, AIMessageChunk)
-                                else chunk.get("tool_calls") or []
-                            )
-                            if chunk_calls:
-                                raise RuntimeError("calculation review requested unavailable tools")
-                            reviewed += (
-                                chunk.text if isinstance(chunk, AIMessageChunk)
-                                else str(chunk.get("content") or "")
-                            )
-                    if not reviewed.strip():
-                        raise RuntimeError("calculation review returned an empty answer")
-                    assistant = AIMessage(content=reviewed)
+                    assistant = await self._review_calculation(
+                        selected_model, history, assistant, think,
+                    )
                 if check_dates:
                     assistant = AIMessage(content=validate_date_answer(assistant.text))
                 if calculation_used or check_dates:
@@ -224,6 +212,6 @@ class ChatService:
                 activities.append(execution.activity)
                 yield {"event": StreamEvent.TOOL, "data": execution.activity.model_dump()}
                 history.append(execution.message)
-                if (call.get("name") or call.get("function", {}).get("name")) == "internal__calculate":
+                if call.get("name") == "internal__calculate":
                     calculation_used = True
         raise RuntimeError("maximum tool rounds exceeded")

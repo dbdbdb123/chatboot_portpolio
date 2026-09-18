@@ -16,7 +16,6 @@ from langchain_core.messages import (
 from redis.asyncio import Redis
 
 from backend.constants.history import CHAT_HISTORY_KEY_PREFIX, CHAT_MESSAGE_RETENTION
-from backend.schemas import ChatMessage
 from backend.schemas.history import ChatSessionMessages, ChatSessionSummary, StoredChatMessage
 
 
@@ -75,15 +74,6 @@ class RedisChatHistoryStore:
         await self._redis.zremrangebyscore(
             self._messages_key(session_id), "-inf", self._cutoff_timestamp()
         )
-
-    async def append_exchange(
-        self, session_id: str, user_message: ChatMessage, assistant_message: ChatMessage,
-    ) -> None:
-        """한 번의 정상 완료 요청에서 사용자 질문과 모델 답변을 순서대로 저장한다."""
-        await self.add_messages(session_id, [
-            HumanMessage(content=user_message.content),
-            AIMessage(content=assistant_message.content),
-        ])
 
     async def add_messages(self, session_id: str, messages: list[BaseMessage]) -> None:
         """LangChain 메시지를 한 번의 Redis 트랜잭션으로 세션에 추가한다."""

@@ -104,7 +104,7 @@ class RagStore:
             logger.warning('Qdrant inactive chunk cleanup failed')
 
     def save(self, identifier, name, content, digest, model, chunks, index_version=None):
-        from backend.services.rag import terms
+        from backend.services.rag_retrieval import terms
         self.initialize()
         revision = hashlib.sha256((identifier + digest + model).encode()).hexdigest()
         points = [{'id': str(uuid.uuid5(uuid.UUID(identifier), revision + ':' + str(index))),
@@ -129,7 +129,7 @@ class RagStore:
                       'must_not': [{'key': 'revision', 'match': {'value': revision}}]})
 
     def candidates(self, model, vector, query_terms):
-        from backend.services.rag import cosine
+        from backend.services.rag_retrieval import cosine
         revisions = [p['payload']['revision'] for p in self.manifests() if p['payload']['model'] == model]
         if not revisions:
             return []

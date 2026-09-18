@@ -6,6 +6,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
+from langchain_core.messages import AIMessageChunk
 from PIL import Image
 from pydantic import ValidationError
 
@@ -111,13 +112,13 @@ async def test_qwen_selects_ocr_only_when_needed(think, ocr):
             assert img.data_base64 not in schemas
             assert "data_base64" not in schemas
             if ocr and self.rounds == 1:
-                yield {
-                    "tool_calls": [{"function": {"name": "ocr__inspect_document", "arguments": {}}}]
-                }
+                yield AIMessageChunk(content="", tool_calls=[{
+                    "name": "ocr__inspect_document", "args": {}, "id": "call-ocr",
+                }])
             else:
                 if ocr:
                     assert "invoice 123" in history[-1].text
-                yield {"content": "Invoice 123" if ocr else "A white image"}
+                yield AIMessageChunk(content="Invoice 123" if ocr else "A white image")
 
     mcp = MCP()
     service = ChatService(
@@ -162,7 +163,7 @@ async def test_vision_works_with_tools_off():
         async def stream_chat(self, model, history, tools, think):
             assert tools is None
             assert history[-1].content[1]["image_url"].endswith(img.data_base64)
-            yield {"content": "white image"}
+            yield AIMessageChunk(content="white image")
 
     mcp = MCP()
     result = await ChatService(

@@ -1,56 +1,12 @@
-from typing import Any
-
 import pytest
+from langchain_core.messages import AIMessageChunk, ToolMessage
 
 from backend.dataclass.mcp import MCPTool, MCPToolResult
 from backend.schemas import ChatMessage, ToolActivity
 from backend.services.chat import ChatService
 from backend.services.tool_policy import OCRToolPolicy
 from backend.services.tools import ToolExecution, ToolExecutor
-
-
-class FakeMCP:
-    async def list_tools(self) -> list[MCPTool]:
-        return [
-            MCPTool(
-                "docs",
-                "search",
-                "Search docs",
-                {
-                    "type": "object",
-                    "properties": {"query": {"type": "string"}},
-                    "required": ["query"],
-                },
-            )
-        ]
-
-    async def call_tool(self, server: str, name: str, arguments: dict[str, Any]) -> MCPToolResult:
-        return MCPToolResult(structured_content={"matches": ["README.md"]})
-
-    async def close(self) -> None:
-        return None
-
-
-class FakeOllama:
-    def __init__(self) -> None:
-        self.calls = 0
-
-    async def stream_chat(self, model, messages, tools=None, think=False):
-        yield await self.chat(model, messages, tools)
-
-    async def chat(
-        self, model: str, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None
-    ) -> dict[str, Any]:
-        self.calls += 1
-        if self.calls == 1:
-            return {
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [
-                    {"function": {"name": "docs__search", "arguments": {"query": "auth"}}}
-                ],
-            }
-        return {"role": "assistant", "content": "README에서 찾았습니다."}
+from fakes import FakeMCP, FakeOllama
 
 
 @pytest.mark.asyncio
@@ -65,7 +21,7 @@ async def test_follow_up_history_reaches_model_without_tools():
                 ("human", "내 이름이 뭐야?"),
             ]
             assert tools is None
-            yield {"content": "민수님입니다."}
+            yield AIMessageChunk(content="민수님입니다.")
 
     mcp = FakeMCP()
     policy = OCRToolPolicy()
@@ -104,8 +60,6 @@ async def test_executes_tool_and_returns_final_answer() -> None:
     [
         ("docs__unknown", {}, "unknown tool"),
         ("ocr__inspect_document", {}, "unknown tool"),
-        ("docs__search", [], "arguments must be an object"),
-        ("docs__search", "[]", "arguments must be an object"),
     ],
 )
 async def test_invalid_model_calls_never_reach_mcp(name, arguments, expected_error):
@@ -114,7 +68,9 @@ async def test_invalid_model_calls_never_reach_mcp(name, arguments, expected_err
     class InvalidCallModel:
         async def stream_chat(self, *args):
             """검증 경계를 시험할 잘못된 도구 호출을 생성한다."""
-            yield {"tool_calls": [{"function": {"name": name, "arguments": arguments}}]}
+            yield AIMessageChunk(content="", tool_calls=[{
+                "name": name, "args": arguments, "id": "call-invalid",
+            }])
 
     class GuardedMCP(FakeMCP):
         async def call_tool(self, *args):
@@ -146,10 +102,12 @@ async def test_injected_tool_runner_is_used():
     class ReplacementRunner:
         async def execute(self, call, tool_index, image):
             """실행 요약과 모델 결과를 대화 서비스의 공통 계약으로 제공한다."""
-            assert call["function"]["name"] in tool_index
+            assert call["name"] in tool_index
             return ToolExecution(
                 activity=ToolActivity(server="docs", name="replacement", arguments={}),
-                message={"role": "tool", "tool_name": "docs__search", "content": "README.md"},
+                message=ToolMessage(
+                    content="README.md", tool_call_id=call["id"], name="docs__search",
+                ),
             )
 
     service = ChatService(
@@ -177,7 +135,7 @@ async def test_executor_accepts_call_only_client():
 
     tool = MCPTool("docs", "search", "Search docs", {"type": "object"})
     result = await ToolExecutor(CallerOnly(), OCRToolPolicy()).execute(
-        {"function": {"name": tool.qualified_name, "arguments": {"query": "auth"}}},
+        {"name": tool.qualified_name, "args": {"query": "auth"}, "id": "call-search"},
         {tool.qualified_name: tool},
         None,
     )

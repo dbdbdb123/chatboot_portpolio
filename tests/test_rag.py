@@ -4,7 +4,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, AIMessageChunk
 
 from backend.api.deps import get_chat_service
 from backend.api.routes import router
@@ -21,7 +21,7 @@ class Model:
         prompt = messages[-1].text
         assert 'QUESTION:' in prompt and 'SOURCE [1]' in prompt
         assert 'untrusted' in messages[0].text
-        yield {'content': '프로젝트 문의는 담당자에게 전달합니다. [1]'}
+        yield AIMessageChunk(content='프로젝트 문의는 담당자에게 전달합니다. [1]')
 
     async def chat(self, model, messages, tools, think):
         assert tools is None and think is False
@@ -335,7 +335,7 @@ async def test_pdf_rejects_unreadable_input_without_writes(rag, kind, expected):
 
 @pytest.mark.asyncio
 async def test_pdf_upload_api_and_size_limit(rag, monkeypatch):
-    from backend.api import routes
+    from backend.api import knowledge_routes
     app = FastAPI()
     app.include_router(router)
     app.state.rag_service = rag
@@ -345,7 +345,7 @@ async def test_pdf_upload_api_and_size_limit(rag, monkeypatch):
         assert response.status_code == 200
         assert response.json()['pages'] == 1
         assert client.post('/api/knowledge/pdf?name=bad.pdf', content=b'not PDF').status_code == 400
-        monkeypatch.setattr(routes, 'MAX_PDF_BYTES', 4)
+        monkeypatch.setattr(knowledge_routes, 'MAX_PDF_BYTES', 4)
         assert client.post('/api/knowledge/pdf?name=big.pdf', content=b'12345').status_code == 413
 
 

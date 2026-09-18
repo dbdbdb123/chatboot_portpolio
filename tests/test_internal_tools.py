@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
+from langchain_core.messages import AIMessageChunk
 
 from backend.dataclass.mcp import MCPTool, MCPToolResult
 from backend.schemas import ChatMessage, ChatResponse
@@ -144,21 +145,22 @@ async def test_chat_executes_internal_tool_and_respects_disabled_toggle(enabled)
             self.calls += 1
             if not enabled:
                 assert tools is None
-                yield {"content": "도구 꺼짐"}
+                yield AIMessageChunk(content="도구 꺼짐")
             elif self.calls == 1:
                 assert any(tool.name == "internal__calculate" for tool in tools)
-                yield {"tool_calls": [{"function": {
-                    "name": "internal__calculate", "arguments": {"expression": "0.1+0.2"},
-                }}]}
+                yield AIMessageChunk(content="", tool_calls=[{
+                    "name": "internal__calculate", "args": {"expression": "0.1+0.2"},
+                    "id": "call-calculate",
+                }])
             elif self.calls == 2:
                 assert '"result": "0.3"' in history[-1].text
-                yield {"content": "잘못된 초안: 0.4입니다"}
+                yield AIMessageChunk(content="잘못된 초안: 0.4입니다")
             else:
                 assert self.calls == 3
                 assert tools is None
                 assert history[-2].text == "잘못된 초안: 0.4입니다"
                 assert history[-1].type == "system"
-                yield {"content": "0.3입니다"}
+                yield AIMessageChunk(content="0.3입니다")
 
     client = clients()
     policy = OCRToolPolicy()

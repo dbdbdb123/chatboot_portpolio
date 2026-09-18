@@ -32,7 +32,7 @@ async def test_ocr_policy_blocks_invalid_calls_before_mcp(has_image, arguments):
     image = ImageAttachment(**attachment()) if has_image else None
     with pytest.raises(ValueError, match="빈 인자"):
         await ToolExecutor(GuardedCaller(), OCRToolPolicy()).execute(
-            {"function": {"name": tool.qualified_name, "arguments": arguments}},
+            {"name": tool.qualified_name, "args": arguments, "id": "call-ocr"},
             {tool.qualified_name: tool},
             image,
         )

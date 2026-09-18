@@ -1,11 +1,12 @@
 import pytest
+from langchain_core.messages import AIMessageChunk
 
 from backend.schemas import ChatMessage
 from backend.services.chat import ChatService
 from backend.services.date_validation import validate_date_answer
 from backend.services.tool_policy import OCRToolPolicy
 from backend.services.tools import ToolExecutor
-from test_chat_service import FakeMCP
+from fakes import FakeMCP
 
 
 @pytest.mark.parametrize(("answer", "expected"), [
@@ -35,8 +36,8 @@ def test_does_not_guess_or_rewrite_non_assertions(answer):
 async def test_wrong_weekday_never_reaches_stream_even_without_tool_call(use_tools):
     class WrongWeekdayModel:
         async def stream_chat(self, *args):
-            yield {"content": "2026 년 9 월 25 일 (토"}
-            yield {"content": "요일) 입니다."}
+            yield AIMessageChunk(content="2026 년 9 월 25 일 (토")
+            yield AIMessageChunk(content="요일) 입니다.")
 
     mcp = FakeMCP()
     policy = OCRToolPolicy()
@@ -76,7 +77,7 @@ async def test_followup_uses_requested_day_and_never_asks_model_to_rewrite():
     class UnusedModel:
         async def stream_chat(self, *args):
             pytest.fail("simple date followups must not be rewritten by a model")
-            yield {}
+            yield AIMessageChunk(content="")
 
     client = DateClient()
     policy = OCRToolPolicy()
