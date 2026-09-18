@@ -207,6 +207,7 @@ tempCodeRunnerFile.py
 .ruff_cache/
 data/
 artifacts/
+/mori-app*.tar
 
 # PyPI configuration file
 .pypirc
