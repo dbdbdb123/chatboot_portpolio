@@ -63,7 +63,7 @@ def create_chat_service(settings, ollama, mcp) -> ChatService:
     )
 
 
-def create_rag_service(settings, callbacks=None) -> tuple[OllamaClient, RagService]:
+def create_rag_service(settings, callbacks=None, langfuse=None) -> tuple[OllamaClient, RagService]:
     """Build the dedicated RAG model and persistent document service."""
     model = OllamaClient(
         settings.ollama_base_url, settings.request_timeout_seconds,
@@ -75,6 +75,7 @@ def create_rag_service(settings, callbacks=None) -> tuple[OllamaClient, RagServi
                  os.environ.get("QDRANT_API_KEY"), os.environ.get("RAG_COLLECTION", "mori")),
         model, settings.ollama_model, settings.ollama_base_url,
         os.environ.get("RAG_EMBEDDING_MODEL", "embeddinggemma"),
+        langfuse=langfuse,
     )
     return model, service
 
@@ -87,6 +88,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         raise ValueError("MCP server name 'internal' is reserved for built-in tools")
     async with AsyncExitStack() as resources:
         langfuse_callbacks = []
+        langfuse = None
         public_key = os.environ.get("LANGFUSE_PUBLIC_KEY")
         secret_key = os.environ.get("LANGFUSE_SECRET_KEY")
         if public_key and secret_key:
@@ -104,7 +106,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         resources.push_async_callback(ollama.close)
         mcp = LangChainMCPGateway(settings.mcp_servers)
         resources.push_async_callback(mcp.close)
-        rag_model, rag_service = create_rag_service(settings, langfuse_callbacks)
+        rag_model, rag_service = create_rag_service(settings, langfuse_callbacks, langfuse)
         resources.push_async_callback(rag_model.close)
         resources.push_async_callback(rag_service.close)
 

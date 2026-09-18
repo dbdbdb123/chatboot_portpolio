@@ -1,4 +1,5 @@
 import json
+from contextlib import contextmanager
 
 import httpx
 import pytest
@@ -26,6 +27,25 @@ class Model:
     async def chat(self, model, messages, tools, think):
         assert tools is None and think is False
         return AIMessage(content='유지호 이력서 주인 이름')
+
+
+class FakeObservation:
+    def __init__(self, record):
+        self.record = record
+
+    def update(self, **values):
+        self.record.update(values)
+
+
+class FakeLangfuse:
+    def __init__(self):
+        self.observations = []
+
+    @contextmanager
+    def start_as_current_observation(self, **values):
+        record = dict(values)
+        self.observations.append(record)
+        yield FakeObservation(record)
 
 
 
@@ -191,6 +211,22 @@ async def test_semantic_retrieval_and_source_answer(rag):
     assert 'guide.md (L1–L2)' in result.message.content
     assert '[1]' in result.message.content
     assert rag.model.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_rag_records_chain_and_retriever_observations(rag):
+    await rag.register('guide.md', '# 프로젝트 안내\n문의는 담당자에게 전달합니다.')
+    langfuse = FakeLangfuse()
+    rag.langfuse = langfuse
+
+    await rag.run([ChatMessage(role='user', content='문의 방법')])
+
+    assert [(item['as_type'], item['name']) for item in langfuse.observations] == [
+        ('chain', 'mori-rag'),
+        ('retriever', 'mori-hybrid-retrieval'),
+    ]
+    assert langfuse.observations[0]['output']['source_count'] == 1
+    assert langfuse.observations[1]['output'][0]['document'] == 'guide.md'
 
 
 def test_display_document_name_hides_upload_identifier():
